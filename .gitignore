@@ -1,0 +1,36 @@
+# Base de données SQLite (côté serveur uniquement)
+*.db
+*.sqlite
+/org-chat.db
+/OrgChat.db
+
+# Build outputs
+bin/
+obj/
+out/
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# NuGet
+*.nupkg
+.nuget/
+
+# IDE
+.idea/
+*.code-workspace
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Secrets locaux
+appsettings.Development.json
+secrets.json

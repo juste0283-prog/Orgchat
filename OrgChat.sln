@@ -1,0 +1,39 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31902.259
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OrgChat.Core", "OrgChat.Core\OrgChat.Core.csproj", "{11111111-1111-1111-1111-111111111001}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OrgChat.Infrastructure", "OrgChat.Infrastructure\OrgChat.Infrastructure.csproj", "{22222222-2222-2222-2222-222222222002}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OrgChat.Server", "OrgChat.Server\OrgChat.Server.csproj", "{33333333-3333-3333-3333-333333333003}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OrgChat.Tests", "OrgChat.Tests\OrgChat.Tests.csproj", "{44444444-4444-4444-4444-444444444004}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any Cpu = Debug|Any Cpu
+		Release|Any Cpu = Release|Any Cpu
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = preSolution
+		{11111111-1111-1111-1111-111111111001}.Debug|Any Cpu.ActiveCfg = Debug|Any Cpu
+		{11111111-1111-1111-1111-111111111001}.Debug|Any Cpu.Build.0 = Debug|Any Cpu
+		{11111111-1111-1111-1111-111111111001}.Release|Any Cpu.ActiveCfg = Release|Any Cpu
+		{11111111-1111-1111-1111-111111111001}.Release|Any Cpu.Build.0 = Release|Any Cpu
+		{22222222-2222-2222-2222-222222222002}.Debug|Any Cpu.ActiveCfg = Debug|Any Cpu
+		{22222222-2222-2222-2222-222222222002}.Debug|Any Cpu.Build.0 = Debug|Any Cpu
+		{22222222-2222-2222-2222-222222222002}.Release|Any Cpu.ActiveCfg = Release|Any Cpu
+		{22222222-2222-2222-2222-222222222002}.Release|Any Cpu.Build.0 = Release|Any Cpu
+		{33333333-3333-3333-3333-333333333003}.Debug|Any Cpu.ActiveCfg = Debug|Any Cpu
+		{33333333-3333-3333-3333-333333333003}.Debug|Any Cpu.Build.0 = Debug|Any Cpu
+		{33333333-3333-3333-3333-333333333003}.Release|Any Cpu.ActiveCfg = Release|Any Cpu
+		{33333333-3333-3333-3333-333333333003}.Release|Any Cpu.Build.0 = Release|Any Cpu
+		{44444444-4444-4444-4444-444444444004}.Debug|Any Cpu.ActiveCfg = Debug|Any Cpu
+		{44444444-4444-4444-4444-444444444004}.Debug|Any Cpu.Build.0 = Debug|Any Cpu
+		{44444444-4444-4444-4444-444444444004}.Release|Any Cpu.ActiveCfg = Release|Any Cpu
+		{44444444-4444-4444-4444-444444444004}.Release|Any Cpu.Build.0 = Release|Any Cpu
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
