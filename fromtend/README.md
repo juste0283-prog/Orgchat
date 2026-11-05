@@ -111,6 +111,15 @@ Les barres obliques finales sont supprimées automatiquement.
 - Affichage chronologique, bulles alignées selon l'auteur, heure d'envoi
 - Reconnexion automatique du hub SignalR
 
+### Notifications et messages non lus
+
+- Compteur de non-lus par conversation (pastille numérique, plafonnée à `99+`)
+- Total des non-lus reporté dans le titre de la fenêtre
+- Notification Windows dans la zone de notification lorsqu'un message arrive alors que la
+  conversation n'est pas affichée ou que la fenêtre est inactive
+- Clic sur la notification ou sur l'icône : restauration de la fenêtre et ouverture de la conversation
+- Remise à zéro automatique à l'ouverture de la conversation ou au retour au premier plan
+
 ### Utilisateurs et profil
 
 - Annuaire des utilisateurs
@@ -169,7 +178,8 @@ fromtend/
 ## Limites connues
 
 - Application Windows uniquement (Windows Forms).
-- Pas de pièces jointes, d'indicateur de saisie, d'accusés de lecture ni de notifications système.
+- Pas de pièces jointes, d'indicateur de saisie ni d'accusés de lecture.
+- Les compteurs de non-lus sont conservés en mémoire pour la session courante (pas de persistance locale).
 - Pas d'édition / suppression de message.
 - Pas de cache hors ligne : l'historique nécessite une connexion au serveur.
 - Le jeton n'est pas persisté : il faut se reconnecter à chaque lancement.

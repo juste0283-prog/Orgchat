@@ -18,7 +18,7 @@ public sealed class MainForm : Form
     private ConversationDto? _current;
     private readonly List<MessageDto> _messages = new();
     private readonly HashSet<int> _messageIds = new();
-    private readonly HashSet<int> _unread = new();
+    private readonly Dictionary<int, int> _unreadCounts = new();
     private int _page = 1;
     private bool _hasMore;
     private bool _loadingOlder;
@@ -46,6 +46,8 @@ public sealed class MainForm : Form
     private AvatarControl _headerAvatar = null!;
     private AvatarControl _meAvatar = null!;
     private Panel _headerPanel = null!;
+    private NotifyIcon _notifyIcon = null!;
+    private int? _pendingNotificationConversationId;
 
     public MainForm(ApiClient api, ClientOptions options, AuthResponse auth)
     {
@@ -64,7 +66,9 @@ public sealed class MainForm : Form
         DoubleBuffered = true;
 
         BuildUi();
+        BuildNotifications();
         WireRealtime();
+        UpdateUnreadIndicators();
 
         Shown += async (_, _) => await InitializeAsync();
     }
@@ -444,6 +448,39 @@ public sealed class MainForm : Form
         _realtime.Reconnected += OnRealtimeReconnected;
     }
 
+    private void BuildNotifications()
+    {
+        var menu = new ContextMenuStrip();
+        menu.Items.Add("Ouvrir OrgChat", null, (_, _) => RestoreFromNotification());
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Quitter", null, (_, _) =>
+        {
+            _notifyIcon.Visible = false;
+            Close();
+        });
+
+        _notifyIcon = new NotifyIcon
+        {
+            Icon = SystemIcons.Information,
+            Text = "OrgChat",
+            Visible = true,
+            ContextMenuStrip = menu
+        };
+
+        _notifyIcon.BalloonTipClicked += (_, _) => RestoreFromNotification();
+        _notifyIcon.DoubleClick += (_, _) => RestoreFromNotification();
+    }
+
+    protected override void OnActivated(EventArgs e)
+    {
+        base.OnActivated(e);
+
+        // Les messages de la conversation affichée sont considérés comme lus
+        // dès que la fenêtre redevient active.
+        if (_current is not null)
+            ClearUnread(_current.Id);
+    }
+
     // ------------------------------------------------------------- Lifecycle
 
     private async Task InitializeAsync()
@@ -506,6 +543,12 @@ public sealed class MainForm : Form
         {
             _users = await _api.GetUsersAsync();
             _conversations = await _api.GetConversationsAsync();
+
+            var conversationIds = _conversations.Select(c => c.Id).ToHashSet();
+            foreach (var staleId in _unreadCounts.Keys.Where(id => !conversationIds.Contains(id)).ToList())
+                _unreadCounts.Remove(staleId);
+            UpdateUnreadIndicators();
+
             RebuildConversationList();
 
             var target = selectConversationId is not null
@@ -548,7 +591,7 @@ public sealed class MainForm : Form
             var item = new ConversationItem(conversation, _auth.UserId)
             {
                 Selected = _current?.Id == conversation.Id,
-                Unread = _unread.Contains(conversation.Id)
+                UnreadCount = _unreadCounts.GetValueOrDefault(conversation.Id)
             };
             item.Activate += async (_, _) => await SelectConversationAsync(conversation);
             _conversationList.Controls.Add(item);
@@ -589,7 +632,7 @@ public sealed class MainForm : Form
             await _realtime.LeaveConversationAsync(_current.Id);
 
         _current = conversation;
-        _unread.Remove(conversation.Id);
+        ClearUnread(conversation.Id);
         _messages.Clear();
         _messageIds.Clear();
         _page = 1;
@@ -892,18 +935,108 @@ public sealed class MainForm : Form
 
         UpdateConversationPreview(message);
 
-        if (_current?.Id == message.ConversationId)
+        var isOwnMessage = message.SenderId == _auth.UserId;
+        var isCurrentConversation = _current?.Id == message.ConversationId;
+        var isVisibleNow = isCurrentConversation && IsWindowActive();
+
+        if (isCurrentConversation)
         {
             AppendMessage(message);
             if (_emptyState.Visible)
                 ShowConversationView();
         }
-        else
+
+        if (!isOwnMessage && !isVisibleNow)
         {
-            _unread.Add(message.ConversationId);
+            _unreadCounts[message.ConversationId] = _unreadCounts.GetValueOrDefault(message.ConversationId) + 1;
+            UpdateUnreadIndicators();
+
+            if (!IsWindowActive() || !isCurrentConversation)
+                ShowMessageNotification(message);
         }
 
         RebuildConversationList();
+    }
+
+    private bool IsWindowActive() =>
+        !IsDisposed
+        && WindowState != FormWindowState.Minimized
+        && Form.ActiveForm is not null;
+
+    private void ClearUnread(int conversationId)
+    {
+        if (!_unreadCounts.Remove(conversationId))
+            return;
+
+        UpdateUnreadIndicators();
+        RebuildConversationList();
+    }
+
+    private void UpdateUnreadIndicators()
+    {
+        var total = _unreadCounts.Values.Sum();
+        Text = total > 0 ? $"OrgChat ({total})" : "OrgChat";
+
+        if (_notifyIcon is not null)
+            _notifyIcon.Text = total > 0 ? $"OrgChat — {total} message(s) non lu(s)" : "OrgChat";
+    }
+
+    private void ShowMessageNotification(MessageDto message)
+    {
+        if (_notifyIcon is null || !_notifyIcon.Visible)
+            return;
+
+        var conversation = _conversations.FirstOrDefault(c => c.Id == message.ConversationId);
+        var title = conversation?.DisplayTitle(_auth.UserId) ?? "Nouveau message";
+        var sender = ResolveSenderName(message, conversation);
+        var body = $"{sender} : {message.Content}";
+
+        if (title.Length > 60)
+            title = title[..57] + "…";
+        if (body.Length > 240)
+            body = body[..237] + "…";
+
+        _pendingNotificationConversationId = message.ConversationId;
+        _notifyIcon.BalloonTipTitle = title;
+        _notifyIcon.BalloonTipText = body;
+        _notifyIcon.BalloonTipIcon = ToolTipIcon.Info;
+        _notifyIcon.ShowBalloonTip(6000);
+    }
+
+    private string ResolveSenderName(MessageDto message, ConversationDto? conversation)
+    {
+        var participant = conversation?.Participants.FirstOrDefault(p => p.UserId == message.SenderId);
+        if (participant is not null)
+            return string.IsNullOrWhiteSpace(participant.DisplayName) ? participant.Username : participant.DisplayName;
+
+        var user = _users.FirstOrDefault(u => u.Id == message.SenderId);
+        if (user is not null)
+            return string.IsNullOrWhiteSpace(user.DisplayName) ? user.Username : user.DisplayName;
+
+        return string.IsNullOrWhiteSpace(message.SenderUsername) ? "Nouveau message" : message.SenderUsername;
+    }
+
+    private async void RestoreFromNotification()
+    {
+        if (IsDisposed)
+            return;
+
+        if (WindowState == FormWindowState.Minimized)
+            WindowState = FormWindowState.Normal;
+
+        Show();
+        Activate();
+        BringToFront();
+
+        var conversationId = _pendingNotificationConversationId;
+        _pendingNotificationConversationId = null;
+
+        if (conversationId is null)
+            return;
+
+        var conversation = _conversations.FirstOrDefault(c => c.Id == conversationId.Value);
+        if (conversation is not null)
+            await SelectConversationAsync(conversation);
     }
 
     private void UpdateConversationPreview(MessageDto message)
@@ -1064,6 +1197,14 @@ public sealed class MainForm : Form
         _realtime.StateChanged -= OnRealtimeStateChanged;
         _realtime.Reconnected -= OnRealtimeReconnected;
         _ = _realtime.DisposeAsync();
+
+        if (_notifyIcon is not null)
+        {
+            _notifyIcon.Visible = false;
+            _notifyIcon.ContextMenuStrip?.Dispose();
+            _notifyIcon.Dispose();
+        }
+
         base.OnFormClosed(e);
     }
 }
