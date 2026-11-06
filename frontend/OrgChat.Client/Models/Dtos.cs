@@ -109,10 +109,10 @@ public sealed class ConversationDto
             if (names.Count == 0)
                 return Localization.F("{0} participants", Participants.Count);
             var suffix = Participants.Count > 4 ? $" +{Participants.Count - 4}" : string.Empty;
-            return Localization.F("{0} participants Â· {1}", Participants.Count, string.Join(", ", names) + suffix);
+            return Localization.F("{0} participants · {1}", Participants.Count, string.Join(", ", names) + suffix);
         }
 
-        return Localization.T("Conversation privÃ©e");
+        return Localization.T("Conversation privée");
     }
 
     public string PreviewText => string.IsNullOrWhiteSpace(LastMessagePreview)

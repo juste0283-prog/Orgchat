@@ -12,10 +12,14 @@ public static class AppDbContextExtensions
         CancellationToken cancellationToken = default)
     {
         var now = DateTime.UtcNow;
-        return await db.Sessions
+        var activeSessions = await db.Sessions
             .Where(s => s.UserId == userId && s.RevokedAt == null && s.ExpiresAt >= now)
-            .ExecuteUpdateAsync(
-                s => s.SetProperty(se => se.RevokedAt, now),
-                cancellationToken);
+            .ToListAsync(cancellationToken);
+
+        foreach (var session in activeSessions)
+            session.RevokedAt = now;
+
+        await db.SaveChangesAsync(cancellationToken);
+        return activeSessions.Count;
     }
 }

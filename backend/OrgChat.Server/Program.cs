@@ -91,10 +91,10 @@ app.Use(async (context, next) =>
             var now = DateTime.UtcNow;
             var user = await db.Users
                 .AsNoTracking()
-                .Select(u => new { u.Id, u.IsActive, u.Status, u.SuspendedUntil })
+                .Select(u => new { u.Id, u.IsActive, u.Status, u.SuspendedUntil, OrgIsActive = u.Organization.IsActive })
                 .FirstOrDefaultAsync(u => u.Id == userId);
 
-            var permitted = user != null && user.IsActive &&
+            var permitted = user != null && user.IsActive && user.OrgIsActive &&
                 user.Status switch
                 {
                     OrgChat.Core.Enums.AccountStatus.Active => true,

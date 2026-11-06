@@ -114,6 +114,17 @@ public class ChatHub : Hub
             .Select(pair => pair.Key)
             .ToArray();
 
+    /// <summary>Identifiants des utilisateurs actuellement connectés, pour la supervision.</summary>
+    public static IReadOnlyCollection<int> OnlineUserIds() =>
+        OnlineConnections
+            .Where(pair => pair.Value > 0)
+            .Select(pair => pair.Key)
+            .ToArray();
+
+    /// <summary>Nombre de connexions SignalR simultanées (tous utilisateurs).</summary>
+    public static int ConcurrentConnectionCount() =>
+        OnlineConnections.Sum(pair => pair.Value);
+
     public async Task StartTyping(int conversationId)
     {
         await BroadcastTypingAsync(conversationId, isTyping: true);
