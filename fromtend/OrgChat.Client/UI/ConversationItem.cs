@@ -28,7 +28,9 @@ public sealed class ConversationItem : Control
 
     public bool Selected { get; set; }
 
-    public bool Unread { get; set; }
+    public int UnreadCount { get; set; }
+
+    public bool Online { get; set; }
 
     public event EventHandler? Activate;
 
@@ -73,7 +75,8 @@ public sealed class ConversationItem : Control
         }
 
         AvatarControl.DrawAvatar(g, new Rectangle(14, 14, 42, 42),
-            Conversation.DisplayTitle(CurrentUserId), Conversation.Id.ToString());
+            Conversation.DisplayTitle(CurrentUserId), Conversation.Id.ToString(),
+            showStatus: true, online: Online);
 
         var title = Conversation.DisplayTitle(CurrentUserId);
         var time = Ui.FormatConversationTime(Conversation.LastMessageAt ?? Conversation.CreatedAt);
@@ -90,24 +93,38 @@ public sealed class ConversationItem : Control
                 TextFormatFlags.Right | TextFormatFlags.VerticalCenter);
         }
 
-        var preview = Conversation.PreviewText;
-        var previewRect = new Rectangle(68, 36, Math.Max(30, Width - 68 - 58), 20);
-        TextRenderer.DrawText(g, preview, Palette.Small, previewRect,
-            Conversation.LastMessagePreview is null ? Palette.Faint : Palette.Muted,
-            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
-
-        if (Conversation.IsGroup)
+        // Pastilles du bas : compteur de non-lus puis étiquette de groupe.
+        var unreadRect = Rectangle.Empty;
+        if (UnreadCount > 0)
         {
-            var badgeRect = new Rectangle(Width - 40, 44, 26, 16);
-            Palette.DrawRounded(g, badgeRect, 5, Palette.WithAlpha(Palette.Accent, 40));
-            TextRenderer.DrawText(g, "GRP", Palette.SmallBold, badgeRect, Palette.Accent,
+            var unreadText = UnreadCount > 99 ? "99+" : UnreadCount.ToString();
+            var unreadWidth = Math.Max(20, TextRenderer.MeasureText(unreadText, Palette.SmallBold).Width + 12);
+            unreadRect = new Rectangle(Width - unreadWidth - 14, 43, unreadWidth, 18);
+            Palette.DrawRounded(g, unreadRect, 9, Palette.Accent);
+            TextRenderer.DrawText(g, unreadText, Palette.SmallBold, unreadRect, Color.White,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
 
-        if (Unread)
+        var groupRect = Rectangle.Empty;
+        if (Conversation.IsGroup)
         {
-            using var dot = new SolidBrush(Palette.Accent);
-            g.FillEllipse(dot, Width - 20, 20, 8, 8);
+            var groupRight = UnreadCount > 0 ? unreadRect.Left - 6 : Width - 14;
+            groupRect = new Rectangle(groupRight - 30, 44, 30, 16);
+            Palette.DrawRounded(g, groupRect, 5, Palette.WithAlpha(Palette.Accent, 40));
+            TextRenderer.DrawText(g, "GRP", Palette.SmallBold, groupRect, Palette.Accent,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
+
+        var badgesLeft = Width;
+        if (!unreadRect.IsEmpty)
+            badgesLeft = Math.Min(badgesLeft, unreadRect.Left);
+        if (!groupRect.IsEmpty)
+            badgesLeft = Math.Min(badgesLeft, groupRect.Left);
+
+        var preview = Conversation.PreviewText;
+        var previewRect = new Rectangle(68, 36, Math.Max(30, badgesLeft - 8 - 68), 20);
+        TextRenderer.DrawText(g, preview, Palette.Small, previewRect,
+            Conversation.LastMessagePreview is null ? Palette.Faint : Palette.Muted,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
     }
 }

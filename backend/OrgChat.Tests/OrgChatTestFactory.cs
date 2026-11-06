@@ -6,21 +6,24 @@ using OrgChat.Infrastructure.Data;
 
 namespace OrgChat.Tests;
 
-public class OrgChatTestFactory : WebApplicationFactory<OrgChat.Server.Program>
+public class OrgChatTestFactory : WebApplicationFactory<global::Program>
 {
+    private readonly string _databaseName = $"OrgChatTestDb_{Guid.NewGuid():N}";
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.ConfigureServices(services =>
         {
             // Remplacer SQLite par une base en mémoire pour les tests
-            var descriptor = services.SingleOrDefault(
-                d => d.ServiceType == typeof(DbContextOptions<AppDbContext>));
-            if (descriptor != null)
+            var descriptors = services
+                .Where(d => d.ServiceType.FullName?.Contains("DbContextOptions") == true)
+                .ToList();
+            foreach (var descriptor in descriptors)
                 services.Remove(descriptor);
 
             services.AddDbContext<AppDbContext>(options =>
             {
-                options.UseInMemoryDatabase("OrgChatTestDb");
+                options.UseInMemoryDatabase(_databaseName);
             });
         });
 

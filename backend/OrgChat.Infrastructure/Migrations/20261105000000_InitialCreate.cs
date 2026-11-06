@@ -1,9 +1,13 @@
 #nullable disable
 
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using OrgChat.Infrastructure.Data;
 
 namespace OrgChat.Infrastructure.Migrations;
 
+[DbContext(typeof(AppDbContext))]
+[Migration("20261105000000_InitialCreate")]
 public partial class InitialCreate : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using OrgChat.Client.Configuration;
 using OrgChat.Client.Models;
 using OrgChat.Client.Services;
@@ -18,7 +19,18 @@ public sealed class MainForm : Form
     private ConversationDto? _current;
     private readonly List<MessageDto> _messages = new();
     private readonly HashSet<int> _messageIds = new();
-    private readonly HashSet<int> _unread = new();
+    private readonly Dictionary<int, int> _unreadCounts = new();
+    private readonly HashSet<int> _onlineUsers = new();
+    private readonly Dictionary<int, string> _typingUsers = new();
+    private readonly Dictionary<int, DateTime> _typingExpirations = new();
+    private readonly HashSet<int> _toastedMessageIds = new();
+    private readonly System.Windows.Forms.Timer _markReadTimer = new() { Interval = 450 };
+    private readonly System.Windows.Forms.Timer _typingTimer = new() { Interval = 2600 };
+    private readonly System.Windows.Forms.Timer _typingUiTimer = new() { Interval = 1000 };
+    private bool _markingRead;
+    private bool _typingSent;
+    private int? _typingConversationId;
+    private int _notificationUnreadCount;
     private int _page = 1;
     private bool _hasMore;
     private bool _loadingOlder;
@@ -30,8 +42,10 @@ public sealed class MainForm : Form
     private TextBox _searchBox = null!;
     private TextBox _composerBox = null!;
     private RoundedButton _sendButton = null!;
+    private RoundedButton _attachButton = null!;
     private RoundedButton _membersButton = null!;
     private RoundedButton _refreshButton = null!;
+    private RoundedButton _notificationsButton = null!;
     private SmoothFlowPanel _messagesPanel = null!;
     private Panel _emptyState = null!;
     private Label _emptyTitle = null!;
@@ -46,6 +60,8 @@ public sealed class MainForm : Form
     private AvatarControl _headerAvatar = null!;
     private AvatarControl _meAvatar = null!;
     private Panel _headerPanel = null!;
+    private NotifyIcon _notifyIcon = null!;
+    private int? _pendingNotificationConversationId;
 
     public MainForm(ApiClient api, ClientOptions options, AuthResponse auth)
     {
@@ -64,7 +80,14 @@ public sealed class MainForm : Form
         DoubleBuffered = true;
 
         BuildUi();
+        BuildNotifications();
         WireRealtime();
+        _markReadTimer.Tick += OnMarkReadTimerTick;
+        _typingTimer.Tick += async (_, _) => await SetTypingAsync(false);
+        _typingUiTimer.Tick += (_, _) => ExpireTypingUsers();
+        _typingUiTimer.Start();
+        UpdateUnreadIndicators();
+        UpdateNotificationBadge();
 
         Shown += async (_, _) => await InitializeAsync();
     }
@@ -293,7 +316,7 @@ public sealed class MainForm : Form
         var actions = new FlowLayoutPanel
         {
             Dock = DockStyle.Right,
-            Width = 290,
+            Width = 370,
             FlowDirection = FlowDirection.RightToLeft,
             WrapContents = false,
             BackColor = Palette.Background,
@@ -304,6 +327,11 @@ public sealed class MainForm : Form
         _refreshButton.Margin = new Padding(8, 0, 0, 0);
         _refreshButton.Click += async (_, _) => await RefreshAllAsync(_current?.Id);
         actions.Controls.Add(_refreshButton);
+
+        _notificationsButton = Ui.Ghost("🔔", 54, 38);
+        _notificationsButton.Margin = new Padding(8, 0, 0, 0);
+        _notificationsButton.Click += OnNotificationsClicked;
+        actions.Controls.Add(_notificationsButton);
 
         _membersButton = Ui.Outline("Membres", 96, 38);
         _membersButton.Margin = new Padding(8, 0, 0, 0);
@@ -323,7 +351,7 @@ public sealed class MainForm : Form
 
         _headerPanel.Resize += (_, _) =>
         {
-            var width = Math.Max(120, _headerPanel.ClientSize.Width - 76 - 310);
+            var width = Math.Max(120, _headerPanel.ClientSize.Width - 76 - 390);
             _titleLabel.Width = width;
             _subtitleLabel.Width = width;
         };
@@ -398,15 +426,23 @@ public sealed class MainForm : Form
         var grid = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 2,
+            ColumnCount = 3,
             RowCount = 1,
             BackColor = Palette.Surface,
             Margin = Padding.Empty,
             Padding = Padding.Empty
         };
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 42));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 54));
         grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+
+        _attachButton = Ui.Ghost("📎", 36, 36);
+        _attachButton.Dock = DockStyle.Fill;
+        _attachButton.Margin = new Padding(0, 5, 6, 3);
+        _attachButton.Enabled = false;
+        _attachButton.Click += OnAttachClicked;
+        grid.Controls.Add(_attachButton, 0, 0);
 
         _composerBox = new TextBox
         {
@@ -423,14 +459,15 @@ public sealed class MainForm : Form
             Enabled = false
         };
         _composerBox.KeyDown += OnComposerKeyDown;
-        grid.Controls.Add(_composerBox, 0, 0);
+        _composerBox.TextChanged += OnComposerTextChanged;
+        grid.Controls.Add(_composerBox, 1, 0);
 
         _sendButton = Ui.Primary("➤", 46, 44);
         _sendButton.Dock = DockStyle.Fill;
         _sendButton.Margin = new Padding(4, 2, 0, 2);
         _sendButton.Enabled = false;
         _sendButton.Click += async (_, _) => await SendMessageAsync();
-        grid.Controls.Add(_sendButton, 1, 0);
+        grid.Controls.Add(_sendButton, 2, 0);
 
         shell.Controls.Add(grid);
         host.Controls.Add(shell);
@@ -440,8 +477,45 @@ public sealed class MainForm : Form
     private void WireRealtime()
     {
         _realtime.MessageReceived += OnRealtimeMessage;
+        _realtime.ConversationRead += OnConversationRead;
+        _realtime.PresenceChanged += OnPresenceChanged;
+        _realtime.UserTyping += OnUserTyping;
+        _realtime.NotificationReceived += OnNotificationReceived;
         _realtime.StateChanged += OnRealtimeStateChanged;
         _realtime.Reconnected += OnRealtimeReconnected;
+    }
+
+    private void BuildNotifications()
+    {
+        var menu = new ContextMenuStrip();
+        menu.Items.Add("Ouvrir OrgChat", null, (_, _) => RestoreFromNotification());
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Quitter", null, (_, _) =>
+        {
+            _notifyIcon.Visible = false;
+            Close();
+        });
+
+        _notifyIcon = new NotifyIcon
+        {
+            Icon = SystemIcons.Information,
+            Text = "OrgChat",
+            Visible = true,
+            ContextMenuStrip = menu
+        };
+
+        _notifyIcon.BalloonTipClicked += (_, _) => RestoreFromNotification();
+        _notifyIcon.DoubleClick += (_, _) => RestoreFromNotification();
+    }
+
+    protected override void OnActivated(EventArgs e)
+    {
+        base.OnActivated(e);
+
+        // Les messages de la conversation affichée sont considérés comme lus
+        // dès que la fenêtre redevient active.
+        if (_current is not null)
+            ScheduleMarkRead();
     }
 
     // ------------------------------------------------------------- Lifecycle
@@ -464,6 +538,8 @@ public sealed class MainForm : Form
         {
             await LoadProfileAsync();
             await RefreshAllAsync(null);
+            await RefreshPresenceAsync();
+            await RefreshNotificationCountAsync();
         }
         catch (Exception ex)
         {
@@ -506,6 +582,14 @@ public sealed class MainForm : Form
         {
             _users = await _api.GetUsersAsync();
             _conversations = await _api.GetConversationsAsync();
+
+            var conversationIds = _conversations.Select(c => c.Id).ToHashSet();
+            foreach (var staleId in _unreadCounts.Keys.Where(id => !conversationIds.Contains(id)).ToList())
+                _unreadCounts.Remove(staleId);
+            foreach (var conversation in _conversations)
+                _unreadCounts[conversation.Id] = conversation.UnreadCount;
+            UpdateUnreadIndicators();
+
             RebuildConversationList();
 
             var target = selectConversationId is not null
@@ -548,7 +632,8 @@ public sealed class MainForm : Form
             var item = new ConversationItem(conversation, _auth.UserId)
             {
                 Selected = _current?.Id == conversation.Id,
-                Unread = _unread.Contains(conversation.Id)
+                UnreadCount = _unreadCounts.GetValueOrDefault(conversation.Id),
+                Online = IsConversationOnline(conversation)
             };
             item.Activate += async (_, _) => await SelectConversationAsync(conversation);
             _conversationList.Controls.Add(item);
@@ -585,11 +670,15 @@ public sealed class MainForm : Form
 
         var version = ++_loadVersion;
 
+        await SetTypingAsync(false);
+
         if (_current is not null)
             await _realtime.LeaveConversationAsync(_current.Id);
 
+        _typingUsers.Clear();
+        _typingExpirations.Clear();
         _current = conversation;
-        _unread.Remove(conversation.Id);
+        ClearUnread(conversation.Id);
         _messages.Clear();
         _messageIds.Clear();
         _page = 1;
@@ -600,6 +689,7 @@ public sealed class MainForm : Form
         RebuildConversationList();
         await LoadMessagesAsync(version, initial: true);
         await _realtime.JoinConversationAsync(conversation.Id);
+        await MarkCurrentConversationReadAsync();
     }
 
     private void UpdateHeader()
@@ -618,24 +708,67 @@ public sealed class MainForm : Form
         _headerAvatar.Visible = true;
         _headerAvatar.DisplayName = title;
         _headerAvatar.Seed = _current.Id.ToString();
+        _headerAvatar.ShowStatus = true;
+        _headerAvatar.Online = IsConversationOnline(_current);
         _headerAvatar.Invalidate();
 
         _titleLabel.Text = title;
-        _subtitleLabel.Text = _current.ParticipantSummary(_auth.UserId);
+        RefreshHeaderSubtitle();
         _membersButton.Visible = _current.IsGroup;
         SetComposerEnabled(true);
     }
 
+    private void RefreshHeaderSubtitle()
+    {
+        if (_current is null)
+            return;
+
+        var typing = _typingUsers
+            .Where(pair => pair.Key != _auth.UserId)
+            .Select(pair => ResolveTypingName(pair.Key, pair.Value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        _subtitleLabel.Text = typing.Count switch
+        {
+            0 => _current.ParticipantSummary(_auth.UserId),
+            1 => $"{typing[0]} est en train d’écrire…",
+            2 => $"{typing[0]} et {typing[1]} écrivent…",
+            _ => $"{typing.Count} personnes écrivent…"
+        };
+    }
+
+    private string ResolveTypingName(int userId, string fallback)
+    {
+        var participant = _current?.Participants.FirstOrDefault(p => p.UserId == userId);
+        if (participant is not null)
+            return string.IsNullOrWhiteSpace(participant.DisplayName) ? participant.Username : participant.DisplayName;
+
+        var user = _users.FirstOrDefault(u => u.Id == userId);
+        if (user is not null)
+            return string.IsNullOrWhiteSpace(user.DisplayName) ? user.Username : user.DisplayName;
+
+        return string.IsNullOrWhiteSpace(fallback) ? "Quelqu’un" : fallback;
+    }
+
+    private bool IsConversationOnline(ConversationDto conversation) =>
+        _onlineUsers.Count > 0 &&
+        conversation.Participants.Any(p => p.UserId != _auth.UserId && _onlineUsers.Contains(p.UserId));
+
     private void SetComposerEnabled(bool enabled)
     {
         _composerBox.Enabled = enabled;
+        _attachButton.Enabled = enabled && !_sending;
         _sendButton.Enabled = enabled && !_sending;
         _composerBox.PlaceholderText = enabled
             ? "Écrivez un message…  (Entrée pour envoyer)"
             : "Sélectionnez une conversation pour écrire.";
 
         if (!enabled)
+        {
             _composerBox.Clear();
+            _ = SetTypingAsync(false);
+        }
     }
 
     // --------------------------------------------------------------- Messages
@@ -750,11 +883,13 @@ public sealed class MainForm : Form
         {
             var bubble = new MessageBubble(message, message.SenderId == _auth.UserId,
                 showSender && message.SenderId != _auth.UserId);
+            bubble.AttachmentRequested += OnAttachmentRequested;
             bubble.Fit(width);
             _messagesPanel.Controls.Add(bubble);
         }
 
         _messagesPanel.ResumeLayout();
+        UpdateReadReceipts();
 
         BeginInvoke(new Action(() =>
         {
@@ -776,8 +911,10 @@ public sealed class MainForm : Form
             message,
             message.SenderId == _auth.UserId,
             _current?.IsGroup == true && message.SenderId != _auth.UserId);
+        bubble.AttachmentRequested += OnAttachmentRequested;
         bubble.Fit(MessageWidth());
         _messagesPanel.Controls.Add(bubble);
+        UpdateReadReceipts();
         BeginInvoke(new Action(ScrollToBottom));
     }
 
@@ -835,6 +972,42 @@ public sealed class MainForm : Form
         await SendMessageAsync();
     }
 
+    private async void OnComposerTextChanged(object? sender, EventArgs e)
+    {
+        if (!_composerBox.Enabled || _current is null)
+            return;
+
+        await SetTypingAsync(!string.IsNullOrWhiteSpace(_composerBox.Text));
+    }
+
+    private async Task SetTypingAsync(bool isTyping)
+    {
+        if (!isTyping)
+        {
+            _typingTimer.Stop();
+            if (!_typingSent || _typingConversationId is not { } conversationId)
+                return;
+
+            _typingSent = false;
+            _typingConversationId = null;
+            await _realtime.SetTypingAsync(conversationId, false);
+            return;
+        }
+
+        if (_current is null || !_composerBox.Enabled || _sending)
+            return;
+
+        _typingTimer.Stop();
+        _typingTimer.Start();
+
+        if (_typingSent)
+            return;
+
+        _typingSent = true;
+        _typingConversationId = _current.Id;
+        await _realtime.SetTypingAsync(_current.Id, true);
+    }
+
     private async Task SendMessageAsync()
     {
         if (_current is null || _sending)
@@ -844,21 +1017,25 @@ public sealed class MainForm : Form
         if (text.Length == 0)
             return;
 
+        var conversation = _current;
         _sending = true;
         _sendButton.Enabled = false;
+        _attachButton.Enabled = false;
         _composerError.Text = string.Empty;
         _composerBox.Clear();
+        await SetTypingAsync(false);
 
         try
         {
             if (_realtime.IsConnected)
             {
-                await _realtime.SendMessageAsync(_current.Id, text);
+                await _realtime.SendMessageAsync(conversation.Id, text);
             }
             else
             {
-                var message = await _api.SendMessageAsync(_current.Id, text);
-                AppendMessage(message);
+                var message = await _api.SendMessageAsync(conversation.Id, text);
+                if (_current?.Id == conversation.Id)
+                    AppendMessage(message);
                 UpdateConversationPreview(message);
                 RebuildConversationList();
             }
@@ -873,7 +1050,116 @@ public sealed class MainForm : Form
         {
             _sending = false;
             _sendButton.Enabled = _current is not null;
+            _attachButton.Enabled = _current is not null;
             _composerBox.Focus();
+        }
+    }
+
+    private async void OnAttachClicked(object? sender, EventArgs e)
+    {
+        if (_current is null || _sending)
+            return;
+
+        using var dialog = new OpenFileDialog
+        {
+            Title = "Joindre un fichier",
+            Filter = "Tous les fichiers (*.*)|*.*",
+            CheckFileExists = true,
+            Multiselect = false
+        };
+
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+            return;
+
+        var info = new FileInfo(dialog.FileName);
+        if (info.Length <= 0)
+        {
+            ShowComposerError("Le fichier sélectionné est vide.");
+            return;
+        }
+
+        if (info.Length > 20 * 1024 * 1024)
+        {
+            ShowComposerError("La pièce jointe dépasse la taille maximale de 20 Mo.");
+            return;
+        }
+
+        var conversation = _current;
+        var caption = _composerBox.Text.Trim();
+
+        _sending = true;
+        _sendButton.Enabled = false;
+        _attachButton.Enabled = false;
+        UseWaitCursor = true;
+        _composerError.Text = string.Empty;
+        _composerBox.Clear();
+        await SetTypingAsync(false);
+
+        try
+        {
+            var message = await _api.UploadAttachmentAsync(
+                conversation.Id,
+                dialog.FileName,
+                caption.Length > 0 ? caption : null);
+
+            if (_current?.Id == conversation.Id)
+                AppendMessage(message);
+
+            UpdateConversationPreview(message);
+            RebuildConversationList();
+        }
+        catch (Exception ex)
+        {
+            if (caption.Length > 0)
+                _composerBox.Text = caption;
+            ShowComposerError(Ui.FriendlyError(ex));
+        }
+        finally
+        {
+            _sending = false;
+            UseWaitCursor = false;
+            _sendButton.Enabled = _current is not null;
+            _attachButton.Enabled = _current is not null;
+            _composerBox.Focus();
+        }
+    }
+
+    private async void OnAttachmentRequested(AttachmentDto attachment)
+    {
+        try
+        {
+            UseWaitCursor = true;
+            var bytes = await _api.DownloadAttachmentAsync(attachment.Id);
+            var directory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "OrgChat",
+                "attachments");
+            Directory.CreateDirectory(directory);
+
+            var fileName = Path.GetFileName(attachment.OriginalFileName);
+            if (string.IsNullOrWhiteSpace(fileName))
+                fileName = "piece-jointe";
+
+            var path = Path.Combine(directory, $"{attachment.Id}-{fileName}");
+            await File.WriteAllBytesAsync(path, bytes);
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = path,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this,
+                Ui.FriendlyError(ex),
+                "Pièce jointe",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+        }
+        finally
+        {
+            UseWaitCursor = false;
         }
     }
 
@@ -892,18 +1178,445 @@ public sealed class MainForm : Form
 
         UpdateConversationPreview(message);
 
-        if (_current?.Id == message.ConversationId)
+        var isOwnMessage = message.SenderId == _auth.UserId;
+        var isCurrentConversation = _current?.Id == message.ConversationId;
+        var isVisibleNow = isCurrentConversation && IsWindowActive();
+
+        if (isCurrentConversation)
         {
             AppendMessage(message);
             if (_emptyState.Visible)
                 ShowConversationView();
+            if (isVisibleNow)
+                ScheduleMarkRead();
         }
-        else
+
+        if (!isOwnMessage && !isVisibleNow)
         {
-            _unread.Add(message.ConversationId);
+            _unreadCounts[message.ConversationId] = _unreadCounts.GetValueOrDefault(message.ConversationId) + 1;
+            var conversation = _conversations.FirstOrDefault(c => c.Id == message.ConversationId);
+            if (conversation is not null)
+                conversation.UnreadCount = _unreadCounts[message.ConversationId];
+            UpdateUnreadIndicators();
+
+            if ((!IsWindowActive() || !isCurrentConversation) && _toastedMessageIds.Add(message.Id))
+                ShowMessageNotification(message);
         }
 
         RebuildConversationList();
+    }
+
+    private void OnPresenceChanged(PresenceChangedDto presence)
+    {
+        if (IsDisposed)
+            return;
+
+        if (InvokeRequired)
+        {
+            BeginInvoke(new Action<PresenceChangedDto>(OnPresenceChanged), presence);
+            return;
+        }
+
+        if (presence.UserId == _auth.UserId)
+            return;
+
+        if (presence.IsOnline)
+            _onlineUsers.Add(presence.UserId);
+        else
+            _onlineUsers.Remove(presence.UserId);
+
+        RebuildConversationList();
+        if (_current is not null && _current.Participants.Any(p => p.UserId == presence.UserId))
+        {
+            _headerAvatar.Online = IsConversationOnline(_current);
+            _headerAvatar.Invalidate();
+        }
+    }
+
+    private void OnUserTyping(UserTypingDto typing)
+    {
+        if (IsDisposed)
+            return;
+
+        if (InvokeRequired)
+        {
+            BeginInvoke(new Action<UserTypingDto>(OnUserTyping), typing);
+            return;
+        }
+
+        if (typing.UserId == _auth.UserId || _current?.Id != typing.ConversationId)
+            return;
+
+        if (typing.IsTyping)
+        {
+            _typingUsers[typing.UserId] = typing.Username;
+            _typingExpirations[typing.UserId] = DateTime.UtcNow.AddSeconds(4.5);
+        }
+        else
+        {
+            _typingUsers.Remove(typing.UserId);
+            _typingExpirations.Remove(typing.UserId);
+        }
+
+        RefreshHeaderSubtitle();
+    }
+
+    private void ExpireTypingUsers()
+    {
+        if (_typingExpirations.Count == 0)
+            return;
+
+        var now = DateTime.UtcNow;
+        var expired = _typingExpirations
+            .Where(pair => pair.Value <= now)
+            .Select(pair => pair.Key)
+            .ToList();
+
+        if (expired.Count == 0)
+            return;
+
+        foreach (var userId in expired)
+        {
+            _typingExpirations.Remove(userId);
+            _typingUsers.Remove(userId);
+        }
+
+        RefreshHeaderSubtitle();
+    }
+
+    private async Task RefreshPresenceAsync()
+    {
+        if (!_realtime.IsConnected)
+            return;
+
+        var online = await _realtime.GetOnlineUsersAsync();
+        _onlineUsers.Clear();
+        foreach (var userId in online)
+        {
+            if (userId != _auth.UserId)
+                _onlineUsers.Add(userId);
+        }
+
+        RebuildConversationList();
+        if (_current is not null)
+        {
+            _headerAvatar.Online = IsConversationOnline(_current);
+            _headerAvatar.Invalidate();
+        }
+    }
+
+    private async void OnNotificationReceived(NotificationDto notification)
+    {
+        if (IsDisposed)
+            return;
+
+        if (InvokeRequired)
+        {
+            BeginInvoke(new Action<NotificationDto>(OnNotificationReceived), notification);
+            return;
+        }
+
+        if (!notification.IsRead)
+        {
+            _notificationUnreadCount++;
+            UpdateNotificationBadge();
+        }
+
+        if (notification.ConversationId == _current?.Id && IsWindowActive())
+        {
+            ScheduleMarkRead();
+            return;
+        }
+
+        if (notification.MessageId > 0 && !_toastedMessageIds.Add(notification.MessageId))
+            return;
+
+        ShowNotificationToast(notification);
+    }
+
+    private async void OnMarkReadTimerTick(object? sender, EventArgs e)
+    {
+        _markReadTimer.Stop();
+        await MarkCurrentConversationReadAsync();
+    }
+
+    private void ScheduleMarkRead()
+    {
+        if (_current is null)
+            return;
+
+        _markReadTimer.Stop();
+        _markReadTimer.Start();
+    }
+
+    private async Task MarkCurrentConversationReadAsync()
+    {
+        var conversation = _current;
+        if (conversation is null || _markingRead)
+            return;
+
+        var me = conversation.Participants.FirstOrDefault(p => p.UserId == _auth.UserId);
+        var lastReadAt = me?.LastReadAt is { } storedReadAt ? ToUtc(storedReadAt) : (DateTime?)null;
+        var hasUnread = conversation.UnreadCount > 0 ||
+            _messages.Any(m => !m.IsDeleted &&
+                               m.SenderId != _auth.UserId &&
+                               (lastReadAt is null || ToUtc(m.CreatedAt) > lastReadAt.Value));
+
+        if (!hasUnread)
+        {
+            ClearUnread(conversation.Id);
+            return;
+        }
+
+        _markingRead = true;
+        try
+        {
+            ReadReceiptDto? receipt = null;
+            if (_realtime.IsConnected)
+                receipt = await _realtime.MarkAsReadAsync(conversation.Id);
+
+            receipt ??= await _api.MarkConversationReadAsync(conversation.Id);
+            ApplyReadReceipt(receipt);
+            await RefreshNotificationCountAsync();
+        }
+        catch
+        {
+            // La lecture sera retentée à la prochaine activation de la conversation.
+        }
+        finally
+        {
+            _markingRead = false;
+        }
+    }
+
+    private void OnConversationRead(ReadReceiptDto receipt)
+    {
+        if (IsDisposed)
+            return;
+
+        if (InvokeRequired)
+        {
+            BeginInvoke(new Action<ReadReceiptDto>(OnConversationRead), receipt);
+            return;
+        }
+
+        ApplyReadReceipt(receipt);
+    }
+
+    private void ApplyReadReceipt(ReadReceiptDto receipt)
+    {
+        var conversation = _conversations.FirstOrDefault(c => c.Id == receipt.ConversationId);
+        if (conversation is null)
+            return;
+
+        var participant = conversation.Participants.FirstOrDefault(p => p.UserId == receipt.UserId);
+        if (participant is not null)
+            participant.LastReadAt = receipt.ReadAt;
+
+        if (receipt.UserId == _auth.UserId)
+        {
+            conversation.UnreadCount = 0;
+            ClearUnread(conversation.Id);
+        }
+
+        if (_current?.Id == receipt.ConversationId)
+            UpdateReadReceipts();
+    }
+
+    private void UpdateReadReceipts()
+    {
+        if (_current is null || _messagesPanel.IsDisposed)
+            return;
+
+        var others = _current.Participants
+            .Where(p => p.UserId != _auth.UserId)
+            .ToList();
+        var lastOwn = _messages.LastOrDefault(m => m.SenderId == _auth.UserId && !m.IsDeleted);
+
+        string? receipt = null;
+        if (lastOwn is not null && others.Count > 0)
+        {
+            var lastOwnAt = ToUtc(lastOwn.CreatedAt);
+            var readCount = others.Count(p =>
+                p.LastReadAt is { } readAt && ToUtc(readAt) >= lastOwnAt);
+
+            if (readCount > 0)
+                receipt = _current.IsGroup ? $"Vu par {readCount}/{others.Count}" : "Vu";
+        }
+
+        var width = MessageWidth();
+        foreach (Control control in _messagesPanel.Controls)
+        {
+            if (control is not MessageBubble bubble)
+                continue;
+
+            var text = lastOwn is not null && ReferenceEquals(bubble.Message, lastOwn)
+                ? receipt
+                : null;
+
+            if (string.Equals(bubble.ReceiptText, text, StringComparison.Ordinal))
+                continue;
+
+            bubble.ReceiptText = text;
+            bubble.Fit(width);
+        }
+    }
+
+    private static DateTime ToUtc(DateTime value) => value.Kind switch
+    {
+        DateTimeKind.Utc => value,
+        DateTimeKind.Local => value.ToUniversalTime(),
+        _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+    };
+
+    private bool IsWindowActive() =>
+        !IsDisposed
+        && WindowState != FormWindowState.Minimized
+        && Form.ActiveForm is not null;
+
+    private void ClearUnread(int conversationId)
+    {
+        if (!_unreadCounts.Remove(conversationId))
+            return;
+
+        UpdateUnreadIndicators();
+        RebuildConversationList();
+    }
+
+    private void UpdateUnreadIndicators()
+    {
+        var total = _unreadCounts.Values.Sum();
+        Text = total > 0 ? $"OrgChat ({total})" : "OrgChat";
+
+        if (_notifyIcon is not null)
+            _notifyIcon.Text = total > 0 ? $"OrgChat — {total} message(s) non lu(s)" : "OrgChat";
+    }
+
+    private void ShowMessageNotification(MessageDto message)
+    {
+        if (_notifyIcon is null || !_notifyIcon.Visible)
+            return;
+
+        var conversation = _conversations.FirstOrDefault(c => c.Id == message.ConversationId);
+        var title = conversation?.DisplayTitle(_auth.UserId) ?? "Nouveau message";
+        var sender = ResolveSenderName(message, conversation);
+        var body = $"{sender} : {message.Preview}";
+
+        ShowNotificationBalloon(message.ConversationId, title, body);
+    }
+
+    private void ShowNotificationToast(NotificationDto notification)
+    {
+        if (notification.ConversationId <= 0)
+            return;
+
+        var title = string.IsNullOrWhiteSpace(notification.ConversationTitle)
+            ? "Nouveau message"
+            : notification.ConversationTitle;
+        var body = string.IsNullOrWhiteSpace(notification.SenderName)
+            ? notification.Preview
+            : $"{notification.SenderName} : {notification.Preview}";
+
+        ShowNotificationBalloon(notification.ConversationId, title, body);
+    }
+
+    private void ShowNotificationBalloon(int conversationId, string title, string body)
+    {
+        if (_notifyIcon is null || !_notifyIcon.Visible)
+            return;
+
+        if (title.Length > 60)
+            title = title[..57] + "…";
+        if (body.Length > 240)
+            body = body[..237] + "…";
+
+        _pendingNotificationConversationId = conversationId;
+        _notifyIcon.BalloonTipTitle = title;
+        _notifyIcon.BalloonTipText = body;
+        _notifyIcon.BalloonTipIcon = ToolTipIcon.Info;
+        _notifyIcon.ShowBalloonTip(6000);
+    }
+
+    private async Task RefreshNotificationCountAsync()
+    {
+        try
+        {
+            var count = await _api.GetNotificationUnreadCountAsync();
+            _notificationUnreadCount = Math.Max(0, count.UnreadCount);
+            UpdateNotificationBadge();
+        }
+        catch
+        {
+            // Le badge sera rafraîchi à la prochaine occasion.
+        }
+    }
+
+    private void UpdateNotificationBadge()
+    {
+        if (_notificationsButton is null)
+            return;
+
+        _notificationsButton.Text = _notificationUnreadCount > 0
+            ? $"🔔 {_notificationUnreadCount}"
+            : "🔔";
+        _notificationsButton.Width = _notificationUnreadCount > 0 ? 70 : 54;
+    }
+
+    private async void OnNotificationsClicked(object? sender, EventArgs e)
+    {
+        using var dialog = new NotificationsForm(_api);
+        dialog.ShowDialog(this);
+
+        await RefreshNotificationCountAsync();
+
+        var conversationId = dialog.SelectedConversationId;
+        if (conversationId is null)
+            return;
+
+        var conversation = _conversations.FirstOrDefault(c => c.Id == conversationId.Value);
+        if (conversation is not null)
+        {
+            await SelectConversationAsync(conversation);
+            return;
+        }
+
+        await RefreshAllAsync(conversationId);
+    }
+
+    private string ResolveSenderName(MessageDto message, ConversationDto? conversation)
+    {
+        var participant = conversation?.Participants.FirstOrDefault(p => p.UserId == message.SenderId);
+        if (participant is not null)
+            return string.IsNullOrWhiteSpace(participant.DisplayName) ? participant.Username : participant.DisplayName;
+
+        var user = _users.FirstOrDefault(u => u.Id == message.SenderId);
+        if (user is not null)
+            return string.IsNullOrWhiteSpace(user.DisplayName) ? user.Username : user.DisplayName;
+
+        return string.IsNullOrWhiteSpace(message.SenderUsername) ? "Nouveau message" : message.SenderUsername;
+    }
+
+    private async void RestoreFromNotification()
+    {
+        if (IsDisposed)
+            return;
+
+        if (WindowState == FormWindowState.Minimized)
+            WindowState = FormWindowState.Normal;
+
+        Show();
+        Activate();
+        BringToFront();
+
+        var conversationId = _pendingNotificationConversationId;
+        _pendingNotificationConversationId = null;
+
+        if (conversationId is null)
+            return;
+
+        var conversation = _conversations.FirstOrDefault(c => c.Id == conversationId.Value);
+        if (conversation is not null)
+            await SelectConversationAsync(conversation);
     }
 
     private void UpdateConversationPreview(MessageDto message)
@@ -913,7 +1626,7 @@ public sealed class MainForm : Form
             return;
 
         conversation.LastMessageAt = message.CreatedAt;
-        conversation.LastMessagePreview = message.Content;
+        conversation.LastMessagePreview = message.Preview;
     }
 
     private void OnRealtimeStateChanged(RealtimeState state, string? detail)
@@ -939,6 +1652,26 @@ public sealed class MainForm : Form
             RealtimeState.Reconnecting => ("● Reconnexion…", Palette.Warning),
             _ => ("● Hors ligne", Palette.Danger)
         };
+
+        if (state is RealtimeState.Disconnected or RealtimeState.Reconnecting)
+        {
+            _typingSent = false;
+            _typingConversationId = null;
+            _typingUsers.Clear();
+            _typingExpirations.Clear();
+            RefreshHeaderSubtitle();
+        }
+
+        if (state == RealtimeState.Disconnected)
+        {
+            _onlineUsers.Clear();
+            RebuildConversationList();
+            if (_current is not null)
+            {
+                _headerAvatar.Online = false;
+                _headerAvatar.Invalidate();
+            }
+        }
     }
 
     private Task OnRealtimeReconnected()
@@ -947,11 +1680,17 @@ public sealed class MainForm : Form
         {
             BeginInvoke(new Action(async () =>
             {
+                _typingSent = false;
+                _typingConversationId = null;
+                await RefreshPresenceAsync();
+                await RefreshNotificationCountAsync();
+
                 if (_current is null)
                     return;
 
                 await _realtime.JoinConversationAsync(_current.Id);
                 await LoadMessagesAsync(++_loadVersion, initial: true);
+                await MarkCurrentConversationReadAsync();
             }));
         }
 
@@ -1061,9 +1800,27 @@ public sealed class MainForm : Form
         _messageCts?.Cancel();
         _messageCts?.Dispose();
         _realtime.MessageReceived -= OnRealtimeMessage;
+        _realtime.ConversationRead -= OnConversationRead;
+        _realtime.PresenceChanged -= OnPresenceChanged;
+        _realtime.UserTyping -= OnUserTyping;
+        _realtime.NotificationReceived -= OnNotificationReceived;
         _realtime.StateChanged -= OnRealtimeStateChanged;
         _realtime.Reconnected -= OnRealtimeReconnected;
+        _markReadTimer.Stop();
+        _markReadTimer.Dispose();
+        _typingTimer.Stop();
+        _typingTimer.Dispose();
+        _typingUiTimer.Stop();
+        _typingUiTimer.Dispose();
         _ = _realtime.DisposeAsync();
+
+        if (_notifyIcon is not null)
+        {
+            _notifyIcon.Visible = false;
+            _notifyIcon.ContextMenuStrip?.Dispose();
+            _notifyIcon.Dispose();
+        }
+
         base.OnFormClosed(e);
     }
 }

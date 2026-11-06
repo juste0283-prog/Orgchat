@@ -20,7 +20,7 @@ et des composants personnalisés (bulles de message, avatars, cartes de conversa
 
 ## Lancement du serveur
 
-Le backend n'est pas modifié par ce projet. Depuis la racine du dépôt :
+Le backend est un projet séparé. Depuis la racine du dépôt :
 
 ```powershell
 dotnet run --project .\backend\OrgChat.Server\OrgChat.Server.csproj
@@ -109,7 +109,26 @@ Les barres obliques finales sont supprimées automatiquement.
 - Envoi via SignalR lorsque la connexion est active, repli automatique sur l'API REST sinon
 - Réception en temps réel des messages des autres membres
 - Affichage chronologique, bulles alignées selon l'auteur, heure d'envoi
+- Accusé de lecture sur le dernier message envoyé : `Vu` en privé, `Vu par X/Y` en groupe
 - Reconnexion automatique du hub SignalR
+- Pièces jointes : bouton trombone, upload `multipart/form-data`, légende optionnelle,
+  affichage dans la bulle, téléchargement sécurisé et ouverture avec l'application par défaut
+  (limite serveur : 20 Mo, extensions exécutables refusées)
+- Indicateur de saisie « X est en train d'écrire… » avec expiration automatique
+- Présence en ligne/hors ligne : pastille sur les avatars des conversations et de l'en-tête
+
+### Notifications et messages non lus
+
+- Compteur de non-lus par conversation (pastille numérique, plafonnée à `99+`)
+- Compteurs initialisés depuis le serveur (`ConversationDto.UnreadCount`) et synchronisés à chaque rafraîchissement
+- Total des non-lus reporté dans le titre de la fenêtre
+- Notification Windows dans la zone de notification lorsqu'un message arrive alors que la
+  conversation n'est pas affichée ou que la fenêtre est inactive
+- Clic sur la notification ou sur l'icône : restauration de la fenêtre et ouverture de la conversation
+- Cloche avec badge du nombre de notifications persistées, historique consultable dans
+  `NotificationsForm`, marquage lu / tout lu et clic pour ouvrir la conversation
+- Remise à zéro automatique à l'ouverture de la conversation ou au retour au premier plan,
+  avec persistance serveur via `POST /api/conversations/{id}/read` (ou `MarkAsRead` SignalR)
 
 ### Utilisateurs et profil
 
@@ -144,6 +163,7 @@ fromtend/
     │   ├── MainForm.cs                  # Conversations, messages, temps réel
     │   ├── NewConversationForm.cs       # Création privée ou groupe
     │   ├── GroupMembersForm.cs          # Participants d'un groupe
+    │   ├── NotificationsForm.cs         # Historique des notifications persistées
     │   ├── ProfileForm.cs               # Édition du profil
     │   └── UsersForm.cs                 # Annuaire et administration
     └── UI/
@@ -164,12 +184,12 @@ fromtend/
 - Le jeton JWT est fourni à SignalR via `AccessTokenProvider`, sans duplication de logique d'authentification.
 - Les erreurs HTTP sont converties en `ApiException` avec le message renvoyé par le serveur.
 - `WFO1000` est désactivé (`NoWarn`) car les contrôles sont créés par code, sans sérialisation Designer.
-- Le client ne modifie ni ne référence le projet `backend/` ; il communique uniquement par HTTP et WebSocket.
+- Le client ne référence pas le projet `backend/` ; il communique uniquement par HTTP et WebSocket.
 
 ## Limites connues
 
 - Application Windows uniquement (Windows Forms).
-- Pas de pièces jointes, d'indicateur de saisie, d'accusés de lecture ni de notifications système.
+- Les compteurs de non-lus et les notifications sont persistés côté serveur et resynchronisés à chaque rafraîchissement.
 - Pas d'édition / suppression de message.
 - Pas de cache hors ligne : l'historique nécessite une connexion au serveur.
 - Le jeton n'est pas persisté : il faut se reconnecter à chaque lancement.

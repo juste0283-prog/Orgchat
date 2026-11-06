@@ -168,6 +168,7 @@ Un script SQL équivalent est fourni dans `scripts/postgresql/init.sql` pour mig
 | `GET` | `/api/conversations` | Authentifié | Liste des conversations de l'utilisateur |
 | `GET` | `/api/conversations/{id}` | Authentifié + participant | Détail d'une conversation |
 | `POST` | `/api/conversations` | Authentifié | Crée une conversation privée ou groupe |
+| `POST` | `/api/conversations/{id}/read` | Authentifié + participant | Marque la conversation comme lue et diffuse l'accusé `ConversationRead` |
 | `POST` | `/api/conversations/{id}/participants` | Authentifié / admin groupe | Ajoute un participant |
 | `DELETE` | `/api/conversations/{id}/participants/{userId}` | Authentifié / admin groupe | Retire un participant |
 
@@ -186,16 +187,93 @@ Un script SQL équivalent est fourni dans `scripts/postgresql/init.sql` pour mig
 - Seuls les admins de groupe peuvent ajouter/retirer des participants
 - Un groupe ou privé ne peut descendre en dessous de 2 participants
 
+**ReadReceiptDto :**
+```json
+{
+  "conversationId": 0,
+  "userId": 0,
+  "readAt": "2026-11-05T19:00:00Z"
+}
+```
+
 ### 4.4 Messages
 
 | Méthode | Endpoint | Autorisation | Description |
 |---------|----------|--------------|-------------|
 | `GET` | `/api/conversations/{id}/messages` | Authentifié + participant | Historique paginé (page, pageSize max 100) |
 | `POST` | `/api/conversations/{id}/messages` | Authentifié + participant | Envoie un message |
+| `POST` | `/api/conversations/{id}/messages/attachments` | Authentifié + participant | Envoie un message avec pièce jointe (`multipart/form-data`) |
+| `GET` | `/api/attachments/{id}` | Authentifié + participant | Télécharge une pièce jointe |
 
 **MessageCreateRequest :**
 ```json
 {
+  "content": "string"
+}
+```
+
+**MessageDto :**
+```json
+{
+  "id": 0,
+  "conversationId": 0,
+  "senderId": 0,
+  "senderUsername": "string",
+  "content": "string",
+  "createdAt": "2026-11-05T19:00:00Z",
+  "editedAt": null,
+  "isDeleted": false,
+  "deletedAt": null,
+  "attachments": [
+    {
+      "id": 0,
+      "messageId": 0,
+      "originalFileName": "string",
+      "contentType": "string",
+      "sizeInBytes": 0,
+      "downloadUrl": "/api/attachments/0"
+    }
+  ]
+}
+```
+
+**Pièces jointes :**
+- Champ `file` obligatoire, champ `content` optionnel (légende).
+- Taille maximale : 20 Mo ; extensions exécutables bloquées (`.exe`, `.bat`, `.ps1`, `.dll`, etc.).
+- Stockage hors web root dans `uploads/{année}/{mois}/{guid}.{ext}` sous le répertoire de contenu du serveur.
+- Le téléchargement vérifie que l'utilisateur est participant de la conversation du message.
+- Le message et sa pièce jointe sont diffusés via `ReceiveMessage` comme un message classique.
+
+### 4.5 Notifications
+
+| Méthode | Endpoint | Autorisation | Description |
+|---------|----------|--------------|-------------|
+| `GET` | `/api/notifications?take=100` | Authentifié | Liste des notifications de l'utilisateur (max 200) |
+| `GET` | `/api/notifications/unread-count` | Authentifié | Nombre de notifications non lues |
+| `POST` | `/api/notifications/{id}/read` | Authentifié | Marque une notification comme lue |
+| `POST` | `/api/notifications/read-all` | Authentifié | Marque toutes les notifications comme lues |
+
+**NotificationDto :**
+```json
+{
+  "id": 0,
+  "userId": 0,
+  "type": "Message",
+  "conversationId": 0,
+  "messageId": 0,
+  "senderId": 0,
+  "senderName": "string",
+  "conversationTitle": "string",
+  "preview": "string",
+  "createdAt": "2026-11-05T19:00:00Z",
+  "readAt": null
+}
+```
+
+Les notifications sont persistées dans la table `Notifications` existante, avec les détails du message sérialisés dans `Payload` (JSON). Elles sont créées après chaque message pour les participants autres que l'expéditeur. `POST /api/conversations/{id}/read` marque également comme lues les notifications liées à cette conversation.
+
+---
+
 ## 5. SignalR — Hub de chat
 
 ### 5.1 Endpoint
@@ -211,13 +289,23 @@ Un script SQL équivalent est fourni dans `scripts/postgresql/init.sql` pour mig
 | `SendMessage` | `conversationId`, `content` | Envoie un message (persiste puis broadcast) |
 | `JoinConversation` | `conversationId` | Rejoint le groupe SignalR de la conversation |
 | `LeaveConversation` | `conversationId` | Quitte le groupe SignalR |
+| `MarkAsRead` | `conversationId` | Met à jour `LastReadAt` et diffuse `ConversationRead` |
 | `GetHistory` | `conversationId`, `page`, `pageSize` | Récupère l'historique paginé |
+| `StartTyping` | `conversationId` | Signale que l'utilisateur saisit un message |
+| `StopTyping` | `conversationId` | Signale la fin de la saisie |
+| `GetOnlineUsers` | — | Retourne les identifiants des utilisateurs ayant au moins une connexion active |
 
 ### 5.3 Événements reçus par le client
 
 | Événement | Payload | Description |
 |---------|---------|-------------|
 | `ReceiveMessage` | `MessageDto` | Nouveau message diffusé aux participants de la conversation |
+| `ConversationRead` | `ReadReceiptDto` | Un participant a marqué la conversation comme lue |
+| `PresenceChanged` | `PresenceChangedDto` | Un utilisateur passe en ligne ou hors ligne (diffusé à tous) |
+| `UserTyping` | `UserTypingDto` | Un autre participant commence ou arrête de saisir |
+| `NotificationReceived` | `NotificationDto` | Notification persistée diffusée au groupe `user-{userId}` |
+
+Chaque connexion authentifiée est ajoutée au groupe SignalR `user-{userId}` afin de recevoir ses notifications, y compris lorsque l'utilisateur n'a pas rejoint la conversation concernée.
 
 ### 5.4 Flux d'envoi de message
 
@@ -246,18 +334,32 @@ Lors de la reconnexion :
 - `CreateConversationAsync(request, creatorId)` — création privée/groupe avec validation
 - `AddParticipantAsync(conversationId, currentUserId, request)` — ajout participant (admin groupe uniquement)
 - `RemoveParticipantAsync(conversationId, currentUserId, targetUserId)` — retrait participant
+- `MarkAsReadAsync(conversationId, userId)` — enregistre `LastReadAt` et retourne un `ReadReceiptDto`
 
 ### 6.2 `MessageService`
 
 - `SendMessageAsync(conversationId, senderId, request)` — persiste un message (horodatage serveur)
+- `SendAttachmentMessageAsync(...)` — persiste un message avec sa pièce jointe
 - `GetMessagesAsync(conversationId, userId, page, pageSize)` — historique paginé avec vérification d'accès
 
-### 6.3 `PasswordHasher`
+### 6.3 `AttachmentService`
+
+- `SendAttachmentAsync(...)` — valide le fichier (20 Mo, extensions bloquées), l'écrit sur disque puis crée le message
+- `GetDownloadAsync(attachmentId, userId)` — vérifie l'appartenance à la conversation et retourne le fichier
+
+### 6.4 `NotificationService`
+
+- `CreateMessageNotificationsAsync(...)` — persiste une notification par destinataire et diffuse `NotificationReceived`
+- `GetForUserAsync(...)`, `GetUnreadCountAsync(...)` — lecture et compteur
+- `MarkAsReadAsync(...)`, `MarkAllAsReadAsync(...)` — lecture d'une ou toutes les notifications
+- `MarkConversationAsReadAsync(...)` — marque les notifications d'une conversation comme lues
+
+### 6.5 `PasswordHasher`
 
 - `Hash(password)` — PBKDF2 hash avec salt aléatoire
 - `Verify(password, storedHash)` — vérification à temps constant
 
-### 6.4 `TokenService`
+### 6.6 `TokenService`
 
 - `GenerateToken(userId, username, role)` — génère un JWT signé
 
@@ -295,7 +397,10 @@ Lors de la reconnexion :
 - `ASPNETCORE_ENVIRONMENT` — `Production`
 - `ASPNETCORE_URLS` — `http://0.0.0.0:5000` (ou IP LAN/VPN spécifique)
 
-  "content": "string"
+### 7.3 Stockage des pièces jointes
+
+Les fichiers sont écrits sous `<ContentRoot>/uploads/{yyyy}/{MM}/`. Ce dossier doit être sauvegardé avec la base de données et ne doit pas être exposé comme répertoire statique. Les téléchargements passent uniquement par `GET /api/attachments/{id}`, protégé par l'authentification et le contrôle de participation.
+
 ## 8. Base de données
 
 ### 8.1 SQLite (développement / production par défaut)
@@ -330,6 +435,9 @@ Nécessite le provider `Npgsql.EntityFrameworkCore.PostgreSQL` (non installé pa
 - **Tests d'intégration auth** : `AuthIntegrationTests` — register, login, doublons, mauvais mot de passe
 - **Tests d'intégration conversations** : `ConversationIntegrationTests` — création, liste, contrôle d'accès
 - **Tests d'intégration messages** : `MessageIntegrationTests` — envoi, pagination, contrôle d'accès
+- **Tests d'intégration lecture** : `ReadReceiptIntegrationTests` — compteur de non-lus et accusé de lecture
+- **Tests d'intégration pièces jointes** : `AttachmentIntegrationTests` — upload, téléchargement, contrôle d'accès, extensions bloquées
+- **Tests d'intégration notifications** : `NotificationIntegrationTests` — persistance, compteur, lecture ciblée et globale
 
 ### 9.2 Exécution
 
@@ -362,6 +470,8 @@ Client → POST /hubs/chat (SignalR)
          └── SendMessage(conversationId, "Hello")
          └── Broadcast "ReceiveMessage" aux participants
 Client → GET /api/conversations/{id}/messages?page=1&pageSize=50
+Client → POST /api/conversations/{id}/read → ReadReceiptDto
+         └── Broadcast "ConversationRead" aux participants
 ```
 
 ### 10.3 Reconnexion après hors-ligne
@@ -386,15 +496,18 @@ Client → GetHistory(conversationId, page, pageSize)
 - Diffusion temps réel via SignalR
 - Contrôle d'accès par conversation
 - Récupération des messages à la reconnexion
+- Accusés de lecture et compteurs de non-lus persistants (`ConversationParticipant.LastReadAt`)
+- Diffusion temps réel des accusés de lecture (`ConversationRead`)
+- Pièces jointes (20 Mo max, extensions exécutables bloquées, stockage hors web root)
+- Présence en ligne/hors ligne et indicateur de saisie via SignalR
+- Notifications persistées, compteur non lu, diffusion `NotificationReceived` et historique consultable
 
 ### 11.2 Non implémenté (étapes futures)
 
-- Pièces jointes (stockage hors web root, limites de taille/extension)
-- Accusés de lecture
-- Présence (en ligne/hors ligne)
-- Notifications push
+- Notifications système push (le client affiche une notification Windows locale)
 - Administration complète
 - Appels audio (hors scope)
+- Édition / suppression de message
 
 ---
 
@@ -447,8 +560,10 @@ dotnet run
 ### OrgChat.Core
 - `Contracts/Auth/RegisterRequest.cs`, `LoginRequest.cs`, `AuthResponse.cs`
 - `Contracts/Users/UserDto.cs`, `UpdateUserRequest.cs`
-- `Contracts/Conversations/ConversationDto.cs`, `ConversationCreateRequest.cs`, `ConversationParticipantDto.cs`, `AddParticipantRequest.cs`
-- `Contracts/Messages/MessageDto.cs`, `MessageCreateRequest.cs`, `PagedMessageResponse.cs`
+- `Contracts/Conversations/ConversationDto.cs`, `ConversationCreateRequest.cs`, `ConversationParticipantDto.cs`, `AddParticipantRequest.cs`, `ReadReceiptDto.cs`
+- `Contracts/Messages/MessageDto.cs`, `MessageCreateRequest.cs`, `PagedMessageResponse.cs`, `AttachmentDto.cs`
+- `Contracts/Notifications/NotificationDto.cs`
+- `Contracts/Realtime/PresenceChangedDto.cs`, `UserTypingDto.cs`
 - `Contracts/Services/IPasswordHasher.cs`, `ITokenService.cs`
 - `Entities/*`, `Enums/*`
 
@@ -460,14 +575,15 @@ dotnet run
 
 ### OrgChat.Server
 - `Program.cs` (DI, auth JWT, SignalR, migration auto)
-- `Controllers/AuthController.cs`, `UsersController.cs`, `ConversationsController.cs`, `MessagesController.cs`
+- `Controllers/AuthController.cs`, `UsersController.cs`, `ConversationsController.cs`, `MessagesController.cs`, `AttachmentsController.cs`, `NotificationsController.cs`
 - `Hubs/ChatHub.cs`
-- `Services/ConversationService.cs`, `MessageService.cs`
+- `Services/ConversationService.cs`, `MessageService.cs`, `AttachmentService.cs`, `NotificationService.cs`
 - `appsettings.json`, `launchSettings.json`
 
 ### OrgChat.Tests
 - `OrgChatTestFactory.cs`
 - `AuthIntegrationTests.cs`, `ConversationIntegrationTests.cs`, `MessageIntegrationTests.cs`
+- `ReadReceiptIntegrationTests.cs`, `AttachmentIntegrationTests.cs`, `NotificationIntegrationTests.cs`
 - `AppDbContextSmokeTests.cs`
 
 ### Scripts
@@ -482,21 +598,3 @@ dotnet run
 ---
 
 *Documentation générée pour le backend OrgChat. À maintenir à jour à chaque nouvelle étape d'implémentation.*
-
-}
-```
-
-**MessageDto :**
-```json
-{
-  "id": 0,
-  "conversationId": 0,
-  "senderId": 0,
-  "senderUsername": "string",
-  "content": "string",
-  "createdAt": "datetime",
-  "editedAt": "datetime?",
-  "isDeleted": false,
-  "deletedAt": "datetime?"
-}
-```

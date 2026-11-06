@@ -35,7 +35,7 @@ public class PasswordHasher : IPasswordHasher
         if (string.IsNullOrEmpty(storedHash))
             return false;
 
-        var hashBytes;
+        byte[] hashBytes;
         try
         {
             hashBytes = Convert.FromBase64String(storedHash);

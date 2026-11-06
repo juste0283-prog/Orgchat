@@ -79,6 +79,7 @@ public sealed class ConversationDto
     public List<ConversationParticipantDto> Participants { get; set; } = new();
     public DateTime? LastMessageAt { get; set; }
     public string? LastMessagePreview { get; set; }
+    public int UnreadCount { get; set; }
 
     public bool IsGroup => string.Equals(Type, "Group", StringComparison.OrdinalIgnoreCase);
 
@@ -117,6 +118,35 @@ public sealed class ConversationDto
         : LastMessagePreview!;
 }
 
+public sealed class ReadReceiptDto
+{
+    public int ConversationId { get; set; }
+    public int UserId { get; set; }
+    public DateTime ReadAt { get; set; }
+}
+
+public sealed class AttachmentDto
+{
+    public int Id { get; set; }
+    public int MessageId { get; set; }
+    public string OriginalFileName { get; set; } = string.Empty;
+    public string ContentType { get; set; } = string.Empty;
+    public long SizeInBytes { get; set; }
+    public string DownloadUrl { get; set; } = string.Empty;
+
+    public string DisplaySize
+    {
+        get
+        {
+            if (SizeInBytes < 1024)
+                return $"{SizeInBytes} o";
+            if (SizeInBytes < 1024 * 1024)
+                return $"{SizeInBytes / 1024d:0.#} Ko";
+            return $"{SizeInBytes / (1024d * 1024d):0.#} Mo";
+        }
+    }
+}
+
 public sealed class MessageDto
 {
     public int Id { get; set; }
@@ -128,10 +158,51 @@ public sealed class MessageDto
     public DateTime? EditedAt { get; set; }
     public bool IsDeleted { get; set; }
     public DateTime? DeletedAt { get; set; }
+    public List<AttachmentDto> Attachments { get; set; } = new();
 
     public DateTime LocalCreatedAt => CreatedAt.Kind == DateTimeKind.Utc
         ? CreatedAt.ToLocalTime()
         : DateTime.SpecifyKind(CreatedAt, DateTimeKind.Local);
+
+    public string Preview => string.IsNullOrWhiteSpace(Content) && Attachments.Count > 0
+        ? "📎 " + Attachments[0].OriginalFileName
+        : Content;
+}
+
+public sealed class NotificationDto
+{
+    public int Id { get; set; }
+    public int UserId { get; set; }
+    public string Type { get; set; } = string.Empty;
+    public int ConversationId { get; set; }
+    public int MessageId { get; set; }
+    public int SenderId { get; set; }
+    public string SenderName { get; set; } = string.Empty;
+    public string ConversationTitle { get; set; } = string.Empty;
+    public string Preview { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+    public DateTime? ReadAt { get; set; }
+    public bool IsRead => ReadAt is not null;
+}
+
+public sealed class NotificationCountDto
+{
+    public int UnreadCount { get; set; }
+}
+
+public sealed class PresenceChangedDto
+{
+    public int UserId { get; set; }
+    public string Username { get; set; } = string.Empty;
+    public bool IsOnline { get; set; }
+}
+
+public sealed class UserTypingDto
+{
+    public int ConversationId { get; set; }
+    public int UserId { get; set; }
+    public string Username { get; set; } = string.Empty;
+    public bool IsTyping { get; set; }
 }
 
 public sealed class PagedMessageResponse

@@ -10,9 +10,9 @@ namespace OrgChat.Tests;
 public class MessageIntegrationTests : IClassFixture<OrgChatTestFactory>
 {
     private readonly HttpClient _client;
-    private readonly string _aliceToken;
-    private readonly string _bobToken;
-    private readonly int _conversationId;
+    private string _aliceToken;
+    private string _bobToken;
+    private int _conversationId;
     private readonly OrgChatTestFactory _factory;
 
     public MessageIntegrationTests(OrgChatTestFactory factory)
@@ -53,6 +53,18 @@ public class MessageIntegrationTests : IClassFixture<OrgChatTestFactory>
             Password = "Password123!"
         };
         var response = await _client.PostAsJsonAsync("/api/auth/register", request);
+        if (response.StatusCode != HttpStatusCode.OK)
+        {
+            // Le fixture partage la base entre les tests de la classe : réutiliser le compte existant.
+            var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
+            {
+                Username = username,
+                Password = "Password123!"
+            });
+            var loginResult = await loginResponse.Content.ReadFromJsonAsync<AuthResponse>();
+            return loginResult!.Token;
+        }
+
         var result = await response.Content.ReadFromJsonAsync<AuthResponse>();
         return result!.Token;
     }
