@@ -84,6 +84,13 @@ public class ChatHub : Hub
         var userId = GetCurrentUserId();
         if (userId > 0)
         {
+            if (UserConnections.TryGetValue(userId, out var userConnections))
+            {
+                userConnections.TryRemove(Context.ConnectionId, out _);
+                if (userConnections.IsEmpty)
+                    UserConnections.TryRemove(userId, out _);
+            }
+
             var connections = OnlineConnections.AddOrUpdate(userId, 0, (_, current) => Math.Max(0, current - 1));
             if (connections == 0)
             {
