@@ -29,6 +29,25 @@ public class ConversationsController : ControllerBase
         return userIdClaim != null ? int.Parse(userIdClaim) : 0;
     }
 
+    private async Task BroadcastConversationUpdatedAsync(int conversationId, IEnumerable<int> participantIds)
+    {
+        foreach (var participantId in participantIds.Distinct())
+        {
+            var conversation = await _conversationService.GetConversationByIdAsync(conversationId, participantId);
+            if (conversation is not null)
+            {
+                await _hub.Clients.Group(ChatHub.UserGroup(participantId))
+                    .SendAsync("ConversationUpdated", conversation);
+            }
+        }
+    }
+
+    private async Task RemoveConversationGroupAsync(int conversationId, IEnumerable<int> participantIds)
+    {
+        foreach (var participantId in participantIds.Distinct())
+            await ChatHub.RemoveUserFromGroupAsync(_hub, participantId, conversationId);
+    }
+
     [HttpGet]
     public async Task<IActionResult> GetConversations()
     {
@@ -91,6 +110,9 @@ public class ConversationsController : ControllerBase
         if (!success)
             return BadRequest(new { error = "Impossible d'ajouter ce participant." });
 
+        var participantIds = await _conversationService.GetParticipantUserIdsAsync(id);
+        await BroadcastConversationUpdatedAsync(id, participantIds);
+
         return NoContent();
     }
 
@@ -127,16 +149,12 @@ public class ConversationsController : ControllerBase
                     .SendAsync("ConversationDeleted", deleted);
 
                 // Les autres participants voient la liste des membres se mettre à jour.
-                foreach (var participantId in participantIds.Where(p => p != userId))
-                {
-                    var conversation = await _conversationService.GetConversationByIdAsync(id, participantId);
-                    if (conversation is not null)
-                    {
-                        await _hub.Clients.Group(ChatHub.UserGroup(participantId))
-                            .SendAsync("ConversationUpdated", conversation);
-                    }
-                }
+                await BroadcastConversationUpdatedAsync(id, participantIds.Where(p => p != userId));
             }
+
+            // Dans tous les cas, la connexion SignalR du partant ne doit plus
+            // recevoir les messages de la conversation.
+            await RemoveConversationGroupAsync(id, participantIds);
 
             return NoContent();
         }
@@ -170,6 +188,8 @@ public class ConversationsController : ControllerBase
                     .SendAsync("ConversationDeleted", deleted);
             }
 
+            await RemoveConversationGroupAsync(id, participantIds);
+
             return NoContent();
         }
         catch (UnauthorizedAccessException ex)
@@ -182,10 +202,25 @@ public class ConversationsController : ControllerBase
     public async Task<IActionResult> RemoveParticipant(int id, int userId)
     {
         var currentUserId = GetCurrentUserId();
+        var participantIds = await _conversationService.GetParticipantUserIdsAsync(id);
 
         var success = await _conversationService.RemoveParticipantAsync(id, currentUserId, userId);
         if (!success)
             return BadRequest(new { error = "Impossible de supprimer ce participant." });
+
+        // Le participant retiré ne doit plus recevoir les messages du groupe.
+        await ChatHub.RemoveUserFromGroupAsync(_hub, userId, id);
+
+        var removed = new ConversationDeletedDto
+        {
+            Id = id,
+            DeletedAt = DateTime.UtcNow
+        };
+
+        await _hub.Clients.Group(ChatHub.UserGroup(userId))
+            .SendAsync("ConversationDeleted", removed);
+
+        await BroadcastConversationUpdatedAsync(id, participantIds.Where(p => p != userId));
 
         return NoContent();
     }

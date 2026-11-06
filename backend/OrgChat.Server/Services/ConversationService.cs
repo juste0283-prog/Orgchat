@@ -163,12 +163,20 @@ public class ConversationService
         if (participant == null)
             return false;
 
-        var remainingCount = conversation.Participants.Count - 1;
-        if (remainingCount < 2)
+        var remaining = conversation.Participants
+            .Where(p => p.UserId != targetUserId)
+            .ToList();
+
+        if (remaining.Count < 2)
             return false;
+
+        // Un groupe ne doit jamais se retrouver sans administrateur.
+        if (participant.IsGroupAdmin && remaining.All(p => !p.IsGroupAdmin))
+            remaining[0].IsGroupAdmin = true;
 
         _db.ConversationParticipants.Remove(participant);
         await _db.SaveChangesAsync();
+        await _notifications.DeleteForUserConversationAsync(targetUserId, conversationId);
         return true;
     }
 

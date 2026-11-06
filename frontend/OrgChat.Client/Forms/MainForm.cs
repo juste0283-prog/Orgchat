@@ -717,6 +717,7 @@ public sealed class MainForm : Form
         try
         {
             await _api.LeaveConversationAsync(conversation.Id);
+            await _realtime.LeaveConversationAsync(conversation.Id);
             RemoveConversationLocally(conversation.Id);
             await RefreshAllAsync(null);
         }
@@ -741,6 +742,7 @@ public sealed class MainForm : Form
         try
         {
             await _api.DeleteConversationAsync(conversation.Id);
+            await _realtime.LeaveConversationAsync(conversation.Id);
             RemoveConversationLocally(conversation.Id);
             await RefreshAllAsync(null);
         }
