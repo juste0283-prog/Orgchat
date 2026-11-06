@@ -1,8 +1,11 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using OrgChat.Core.Contracts.Conversations;
 using OrgChat.Core.Contracts.Messages;
+using OrgChat.Server.Hubs;
 using OrgChat.Server.Services;
+using System.Security.Claims;
 
 namespace OrgChat.Server.Controllers;
 
@@ -12,10 +15,12 @@ namespace OrgChat.Server.Controllers;
 public class ConversationsController : ControllerBase
 {
     private readonly ConversationService _conversationService;
+    private readonly IHubContext<ChatHub> _hub;
 
-    public ConversationsController(ConversationService conversationService)
+    public ConversationsController(ConversationService conversationService, IHubContext<ChatHub> hub)
     {
         _conversationService = conversationService;
+        _hub = hub;
     }
 
     private int GetCurrentUserId()
@@ -60,6 +65,18 @@ public class ConversationsController : ControllerBase
         {
             return BadRequest(new { error = ex.Message });
         }
+    }
+
+    [HttpPost("{id}/read")]
+    public async Task<IActionResult> MarkAsRead(int id)
+    {
+        var userId = GetCurrentUserId();
+        var receipt = await _conversationService.MarkAsReadAsync(id, userId);
+        if (receipt is null)
+            return NotFound(new { error = "Conversation introuvable ou accès refusé." });
+
+        await _hub.Clients.Group(id.ToString()).SendAsync("ConversationRead", receipt);
+        return Ok(receipt);
     }
 
     [HttpPost("{id}/participants")]

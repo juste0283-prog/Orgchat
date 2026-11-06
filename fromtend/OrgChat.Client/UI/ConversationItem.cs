@@ -30,6 +30,8 @@ public sealed class ConversationItem : Control
 
     public int UnreadCount { get; set; }
 
+    public bool Online { get; set; }
+
     public event EventHandler? Activate;
 
     protected override void OnMouseEnter(EventArgs e)
@@ -73,7 +75,8 @@ public sealed class ConversationItem : Control
         }
 
         AvatarControl.DrawAvatar(g, new Rectangle(14, 14, 42, 42),
-            Conversation.DisplayTitle(CurrentUserId), Conversation.Id.ToString());
+            Conversation.DisplayTitle(CurrentUserId), Conversation.Id.ToString(),
+            showStatus: true, online: Online);
 
         var title = Conversation.DisplayTitle(CurrentUserId);
         var time = Ui.FormatConversationTime(Conversation.LastMessageAt ?? Conversation.CreatedAt);

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OrgChat.Core.Contracts.Users;
 using OrgChat.Core.Entities;
+using OrgChat.Core.Enums;
 using OrgChat.Infrastructure.Data;
 using System.Security.Claims;
 

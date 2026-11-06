@@ -75,6 +75,9 @@ public sealed class ApiClient : IDisposable
     public Task<ConversationDto> GetConversationAsync(int id, CancellationToken ct = default) =>
         SendAsync<ConversationDto>(HttpMethod.Get, $"api/conversations/{id}", null, auth: true, ct);
 
+    public Task<ReadReceiptDto> MarkConversationReadAsync(int id, CancellationToken ct = default) =>
+        SendAsync<ReadReceiptDto>(HttpMethod.Post, $"api/conversations/{id}/read", null, auth: true, ct);
+
     public Task<ConversationDto> CreateConversationAsync(ConversationCreateRequest request, CancellationToken ct = default) =>
         SendAsync<ConversationDto>(HttpMethod.Post, "api/conversations", request, auth: true, ct);
 
@@ -105,6 +108,95 @@ public sealed class ApiClient : IDisposable
             new MessageCreateRequest { Content = content },
             auth: true,
             ct);
+
+    public async Task<MessageDto> UploadAttachmentAsync(
+        int conversationId,
+        string filePath,
+        string? content,
+        CancellationToken ct = default)
+    {
+        if (!File.Exists(filePath))
+            throw new ApiException("Le fichier sélectionné est introuvable.", 0);
+
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            BuildUri($"api/conversations/{conversationId}/messages/attachments"));
+
+        if (!string.IsNullOrWhiteSpace(_token))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _token);
+
+        await using var stream = File.OpenRead(filePath);
+        using var form = new MultipartFormDataContent();
+        var fileContent = new StreamContent(stream);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(ContentTypeFor(filePath));
+        form.Add(fileContent, "file", Path.GetFileName(filePath));
+
+        if (!string.IsNullOrWhiteSpace(content))
+            form.Add(new StringContent(content, Encoding.UTF8), "content");
+
+        request.Content = form;
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await _http.SendAsync(request, HttpCompletionOption.ResponseContentRead, ct);
+        }
+        catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            throw new ApiException("Le serveur met trop de temps à répondre. Vérifiez son adresse.", 0, ex);
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new ApiException("Serveur OrgChat injoignable. Vérifiez l'adresse et le réseau.", 0, ex);
+        }
+
+        using (response)
+        {
+            var payload = await response.Content.ReadAsStringAsync(ct);
+            var status = (int)response.StatusCode;
+
+            if (!response.IsSuccessStatusCode)
+                throw new ApiException(ExtractError(payload, status), status);
+
+            try
+            {
+                return JsonSerializer.Deserialize<MessageDto>(payload, JsonOptions)
+                    ?? throw new ApiException("Réponse du serveur illisible.", status);
+            }
+            catch (JsonException ex)
+            {
+                throw new ApiException("Réponse du serveur illisible.", status, ex);
+            }
+        }
+    }
+
+    public async Task<byte[]> DownloadAttachmentAsync(int attachmentId, CancellationToken ct = default)
+    {
+        using var response = await SendRawAsync(
+            HttpMethod.Get, $"api/attachments/{attachmentId}", null, auth: true, ct);
+        return await response.Content.ReadAsByteArrayAsync(ct);
+    }
+
+    // -------------------------------------------------------- Notifications
+
+    public Task<List<NotificationDto>> GetNotificationsAsync(int take = 100, CancellationToken ct = default) =>
+        SendAsync<List<NotificationDto>>(
+            HttpMethod.Get,
+            $"api/notifications?take={Math.Clamp(take, 1, 200)}",
+            null,
+            auth: true,
+            ct);
+
+    public Task<NotificationCountDto> GetNotificationUnreadCountAsync(CancellationToken ct = default) =>
+        SendAsync<NotificationCountDto>(
+            HttpMethod.Get, "api/notifications/unread-count", null, auth: true, ct);
+
+    public Task<NotificationDto> MarkNotificationReadAsync(int id, CancellationToken ct = default) =>
+        SendAsync<NotificationDto>(
+            HttpMethod.Post, $"api/notifications/{id}/read", null, auth: true, ct);
+
+    public Task MarkAllNotificationsReadAsync(CancellationToken ct = default) =>
+        SendNoContentAsync(HttpMethod.Post, "api/notifications/read-all", null, ct);
 
     // ------------------------------------------------------------- Internals
 
@@ -231,6 +323,25 @@ public sealed class ApiClient : IDisposable
         (int)HttpStatusCode.NotFound => "Élément introuvable.",
         (int)HttpStatusCode.BadRequest => "La requête est invalide.",
         _ => $"Erreur serveur ({status})."
+    };
+
+    private static string ContentTypeFor(string path) => Path.GetExtension(path).ToLowerInvariant() switch
+    {
+        ".png" => "image/png",
+        ".jpg" or ".jpeg" => "image/jpeg",
+        ".gif" => "image/gif",
+        ".webp" => "image/webp",
+        ".pdf" => "application/pdf",
+        ".txt" or ".log" or ".csv" => "text/plain",
+        ".json" => "application/json",
+        ".zip" => "application/zip",
+        ".doc" => "application/msword",
+        ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".xls" => "application/vnd.ms-excel",
+        ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".ppt" => "application/vnd.ms-powerpoint",
+        ".pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        _ => "application/octet-stream"
     };
 
     private static string Normalize(string url)

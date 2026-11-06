@@ -33,6 +33,14 @@ public sealed class RealtimeChatService : IAsyncDisposable
 
     public event Action<MessageDto>? MessageReceived;
 
+    public event Action<ReadReceiptDto>? ConversationRead;
+
+    public event Action<PresenceChangedDto>? PresenceChanged;
+
+    public event Action<UserTypingDto>? UserTyping;
+
+    public event Action<NotificationDto>? NotificationReceived;
+
     public event Action<RealtimeState, string?>? StateChanged;
 
     public event Func<Task>? Reconnected;
@@ -127,6 +135,22 @@ public sealed class RealtimeChatService : IAsyncDisposable
         await _connection.InvokeAsync("SendMessage", conversationId, content, ct);
     }
 
+    public async Task<ReadReceiptDto?> MarkAsReadAsync(int conversationId, CancellationToken ct = default)
+    {
+        if (_connection is not { State: HubConnectionState.Connected })
+            return null;
+
+        try
+        {
+            return await _connection.InvokeAsync<ReadReceiptDto?>(
+                "MarkAsRead", conversationId, ct);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public async Task<PagedMessageResponse?> GetHistoryAsync(int conversationId, int page, int pageSize, CancellationToken ct = default)
     {
         if (_connection is not { State: HubConnectionState.Connected })
@@ -134,6 +158,37 @@ public sealed class RealtimeChatService : IAsyncDisposable
 
         return await _connection.InvokeAsync<PagedMessageResponse>(
             "GetHistory", conversationId, page, pageSize, ct);
+    }
+
+    public async Task<IReadOnlyCollection<int>> GetOnlineUsersAsync(CancellationToken ct = default)
+    {
+        if (_connection is not { State: HubConnectionState.Connected })
+            return Array.Empty<int>();
+
+        try
+        {
+            return await _connection.InvokeAsync<int[]>("GetOnlineUsers", ct);
+        }
+        catch
+        {
+            return Array.Empty<int>();
+        }
+    }
+
+    public async Task SetTypingAsync(int conversationId, bool isTyping, CancellationToken ct = default)
+    {
+        if (_connection is not { State: HubConnectionState.Connected })
+            return;
+
+        try
+        {
+            await _connection.InvokeAsync(
+                isTyping ? "StartTyping" : "StopTyping", conversationId, ct);
+        }
+        catch
+        {
+            // L'indicateur de saisie est best-effort.
+        }
     }
 
     private void BuildConnection()
@@ -154,6 +209,10 @@ public sealed class RealtimeChatService : IAsyncDisposable
             .Build();
 
         _connection.On<MessageDto>("ReceiveMessage", message => MessageReceived?.Invoke(message));
+        _connection.On<ReadReceiptDto>("ConversationRead", receipt => ConversationRead?.Invoke(receipt));
+        _connection.On<PresenceChangedDto>("PresenceChanged", presence => PresenceChanged?.Invoke(presence));
+        _connection.On<UserTypingDto>("UserTyping", typing => UserTyping?.Invoke(typing));
+        _connection.On<NotificationDto>("NotificationReceived", notification => NotificationReceived?.Invoke(notification));
 
         _connection.Reconnecting += error =>
         {

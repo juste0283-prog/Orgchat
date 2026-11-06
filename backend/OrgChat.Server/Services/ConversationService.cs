@@ -10,10 +10,12 @@ namespace OrgChat.Server.Services;
 public class ConversationService
 {
     private readonly AppDbContext _db;
+    private readonly NotificationService _notifications;
 
-    public ConversationService(AppDbContext db)
+    public ConversationService(AppDbContext db, NotificationService notifications)
     {
         _db = db;
+        _notifications = notifications;
     }
 
     public async Task<ICollection<ConversationDto>> GetConversationsForUserAsync(int userId)
@@ -21,11 +23,13 @@ public class ConversationService
         var conversations = await _db.Conversations
             .Include(c => c.Participants)
                 .ThenInclude(p => p.User)
+            .Include(c => c.Messages)
+                .ThenInclude(m => m.Attachments)
             .Where(c => c.Participants.Any(p => p.UserId == userId))
             .OrderByDescending(c => c.CreatedAt)
             .ToListAsync();
 
-        return conversations.Select(MapToDto).ToList();
+        return conversations.Select(c => MapToDto(c, userId)).ToList();
     }
 
     public async Task<ConversationDto?> GetConversationByIdAsync(int conversationId, int userId)
@@ -33,6 +37,8 @@ public class ConversationService
         var conversation = await _db.Conversations
             .Include(c => c.Participants)
                 .ThenInclude(p => p.User)
+            .Include(c => c.Messages)
+                .ThenInclude(m => m.Attachments)
             .FirstOrDefaultAsync(c => c.Id == conversationId);
 
         if (conversation == null)
@@ -42,7 +48,7 @@ public class ConversationService
         if (!isParticipant)
             return null;
 
-        return MapToDto(conversation);
+        return MapToDto(conversation, userId);
     }
 
     public async Task<ConversationDto> CreateConversationAsync(ConversationCreateRequest request, int creatorId)
@@ -158,8 +164,37 @@ public class ConversationService
         return true;
     }
 
-    private static ConversationDto MapToDto(Conversation c)
+    public Task<bool> IsParticipantAsync(int conversationId, int userId) =>
+        _db.ConversationParticipants
+            .AnyAsync(p => p.ConversationId == conversationId && p.UserId == userId);
+
+    public async Task<ReadReceiptDto?> MarkAsReadAsync(int conversationId, int userId)
     {
+        var participant = await _db.ConversationParticipants
+            .FirstOrDefaultAsync(p => p.ConversationId == conversationId && p.UserId == userId);
+
+        if (participant is null)
+            return null;
+
+        var readAt = DateTime.UtcNow;
+        participant.LastReadAt = readAt;
+        await _db.SaveChangesAsync();
+
+        await _notifications.MarkConversationAsReadAsync(userId, conversationId, readAt);
+
+        return new ReadReceiptDto
+        {
+            ConversationId = conversationId,
+            UserId = userId,
+            ReadAt = readAt
+        };
+    }
+
+    private static ConversationDto MapToDto(Conversation c, int currentUserId)
+    {
+        var currentParticipant = c.Participants.FirstOrDefault(p => p.UserId == currentUserId);
+        var lastReadAt = currentParticipant?.LastReadAt ?? currentParticipant?.JoinedAt ?? DateTime.MinValue;
+
         return new ConversationDto
         {
             Id = c.Id,
@@ -187,8 +222,14 @@ public class ConversationService
             LastMessagePreview = c.Messages
                 .Where(m => !m.IsDeleted)
                 .OrderByDescending(m => m.CreatedAt)
-                .Select(m => m.Content)
-                .FirstOrDefault()
+                .Select(m => string.IsNullOrWhiteSpace(m.Content) && m.Attachments.Count > 0
+                    ? "📎 " + m.Attachments.OrderBy(a => a.Id).First().OriginalFileName
+                    : m.Content)
+                .FirstOrDefault(),
+            UnreadCount = c.Messages.Count(m =>
+                !m.IsDeleted &&
+                m.SenderId != currentUserId &&
+                m.CreatedAt > lastReadAt)
         };
     }
 }
