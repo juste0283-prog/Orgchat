@@ -94,6 +94,90 @@ public class ConversationsController : ControllerBase
         return NoContent();
     }
 
+    [HttpPost("{id}/leave")]
+    public async Task<IActionResult> LeaveConversation(int id)
+    {
+        var userId = GetCurrentUserId();
+        var participantIds = await _conversationService.GetParticipantUserIdsAsync(id);
+
+        if (!participantIds.Contains(userId))
+            return NotFound(new { error = "Conversation introuvable ou accès refusé." });
+
+        try
+        {
+            var result = await _conversationService.LeaveConversationAsync(id, userId);
+            var deleted = new ConversationDeletedDto
+            {
+                Id = id,
+                DeletedAt = DateTime.UtcNow
+            };
+
+            if (result.Deleted)
+            {
+                foreach (var participantId in participantIds)
+                {
+                    await _hub.Clients.Group(ChatHub.UserGroup(participantId))
+                        .SendAsync("ConversationDeleted", deleted);
+                }
+            }
+            else
+            {
+                // Le partant retire immédiatement la conversation de sa liste.
+                await _hub.Clients.Group(ChatHub.UserGroup(userId))
+                    .SendAsync("ConversationDeleted", deleted);
+
+                // Les autres participants voient la liste des membres se mettre à jour.
+                foreach (var participantId in participantIds.Where(p => p != userId))
+                {
+                    var conversation = await _conversationService.GetConversationByIdAsync(id, participantId);
+                    if (conversation is not null)
+                    {
+                        await _hub.Clients.Group(ChatHub.UserGroup(participantId))
+                            .SendAsync("ConversationUpdated", conversation);
+                    }
+                }
+            }
+
+            return NoContent();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> DeleteConversation(int id)
+    {
+        var userId = GetCurrentUserId();
+        var participantIds = await _conversationService.GetParticipantUserIdsAsync(id);
+
+        try
+        {
+            var success = await _conversationService.DeleteConversationAsync(id, userId);
+            if (!success)
+                return NotFound(new { error = "Conversation introuvable ou accès refusé." });
+
+            var deleted = new ConversationDeletedDto
+            {
+                Id = id,
+                DeletedAt = DateTime.UtcNow
+            };
+
+            foreach (var participantId in participantIds)
+            {
+                await _hub.Clients.Group(ChatHub.UserGroup(participantId))
+                    .SendAsync("ConversationDeleted", deleted);
+            }
+
+            return NoContent();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+    }
+
     [HttpDelete("{id}/participants/{userId}")]
     public async Task<IActionResult> RemoveParticipant(int id, int userId)
     {

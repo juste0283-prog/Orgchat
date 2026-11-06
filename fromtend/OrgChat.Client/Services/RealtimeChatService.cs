@@ -33,6 +33,14 @@ public sealed class RealtimeChatService : IAsyncDisposable
 
     public event Action<MessageDto>? MessageReceived;
 
+    public event Action<MessageDto>? MessageUpdated;
+
+    public event Action<MessageDeletedDto>? MessageDeleted;
+
+    public event Action<ConversationDeletedDto>? ConversationDeleted;
+
+    public event Action<ConversationDto>? ConversationUpdated;
+
     public event Action<ReadReceiptDto>? ConversationRead;
 
     public event Action<PresenceChangedDto>? PresenceChanged;
@@ -209,6 +217,10 @@ public sealed class RealtimeChatService : IAsyncDisposable
             .Build();
 
         _connection.On<MessageDto>("ReceiveMessage", message => MessageReceived?.Invoke(message));
+        _connection.On<MessageDto>("MessageUpdated", message => MessageUpdated?.Invoke(message));
+        _connection.On<MessageDeletedDto>("MessageDeleted", deleted => MessageDeleted?.Invoke(deleted));
+        _connection.On<ConversationDeletedDto>("ConversationDeleted", deleted => ConversationDeleted?.Invoke(deleted));
+        _connection.On<ConversationDto>("ConversationUpdated", conversation => ConversationUpdated?.Invoke(conversation));
         _connection.On<ReadReceiptDto>("ConversationRead", receipt => ConversationRead?.Invoke(receipt));
         _connection.On<PresenceChangedDto>("PresenceChanged", presence => PresenceChanged?.Invoke(presence));
         _connection.On<UserTypingDto>("UserTyping", typing => UserTyping?.Invoke(typing));

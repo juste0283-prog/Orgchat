@@ -14,6 +14,7 @@ public sealed class ProfileForm : Form
     private readonly Label _errorLabel;
     private readonly RoundedButton _saveButton;
     private readonly RoundedButton _cancelButton;
+    private readonly RoundedButton _passwordButton;
     private bool _busy;
 
     public ProfileForm(ApiClient api, UserDto user)
@@ -100,6 +101,11 @@ public sealed class ProfileForm : Form
         note.Dock = DockStyle.Top;
         note.Height = 34;
         info.Controls.Add(note);
+
+        _passwordButton = Ui.Outline("Changer mon mot de passe", 220, 36);
+        _passwordButton.Location = new Point(0, 88);
+        _passwordButton.Click += OnChangePasswordClicked;
+        info.Controls.Add(_passwordButton);
         root.Controls.Add(info, 0, 3);
 
         var footer = new FlowLayoutPanel
@@ -177,10 +183,25 @@ public sealed class ProfileForm : Form
         }
     }
 
+    private void OnChangePasswordClicked(object? sender, EventArgs e)
+    {
+        using var dialog = new ChangePasswordForm(_api, _user.Id, _user.Username, adminReset: false);
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+            return;
+
+        ShowError(string.Empty);
+        MessageBox.Show(this,
+            "Votre mot de passe a été modifié.",
+            "Mot de passe modifié",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Information);
+    }
+
     private void SetBusy(bool busy)
     {
         _saveButton.Enabled = !busy;
         _cancelButton.Enabled = !busy;
+        _passwordButton.Enabled = !busy;
         _saveButton.Text = busy ? "Enregistrement…" : "Enregistrer";
         _displayNameBox.Enabled = !busy;
         _emailBox.Enabled = !busy;

@@ -18,6 +18,43 @@ public sealed class OrgChatApplicationContext : ApplicationContext
         _api = api;
         _options = options;
         ShowLogin();
+        _ = TryRestoreSessionAsync();
+    }
+
+    private async Task TryRestoreSessionAsync()
+    {
+        var saved = await SessionStore.LoadAsync();
+        if (saved is null || _main is not null)
+            return;
+
+        var previousBaseUrl = _api.BaseUrl;
+        _api.SetBaseUrl(saved.BaseUrl);
+        _api.SetToken(saved.Auth.Token);
+
+        try
+        {
+            var me = await _api.GetMeAsync();
+            if (!me.IsActive)
+                throw new InvalidOperationException("Compte désactivé.");
+
+            saved.Auth.UserId = me.Id;
+            saved.Auth.Username = me.Username;
+            saved.Auth.Email = me.Email;
+            saved.Auth.DisplayName = me.DisplayName;
+            saved.Auth.Role = me.Role;
+
+            if (_main is null)
+            {
+                _login?.Hide();
+                OnAuthenticated(saved.Auth);
+            }
+        }
+        catch
+        {
+            _api.SetToken(null);
+            _api.SetBaseUrl(previousBaseUrl);
+            SessionStore.Clear();
+        }
     }
 
     private void ShowLogin()
@@ -42,8 +79,9 @@ public sealed class OrgChatApplicationContext : ApplicationContext
         main.LogoutRequested += (_, _) =>
         {
             _main = null;
-            main.Close();
+            main.CloseForLogout();
             _api.SetToken(null);
+            SessionStore.Clear();
             _login?.ResetForLogout();
             _login?.Show();
             _login?.Activate();

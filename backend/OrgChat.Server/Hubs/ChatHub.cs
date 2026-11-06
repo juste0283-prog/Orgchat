@@ -14,6 +14,7 @@ public class ChatHub : Hub
 {
     // Un utilisateur peut avoir plusieurs connexions (plusieurs postes ou reconnexions).
     private static readonly ConcurrentDictionary<int, int> OnlineConnections = new();
+    private static readonly ConcurrentDictionary<int, ConcurrentDictionary<string, byte>> UserConnections = new();
 
     private readonly MessageService _messageService;
     private readonly ConversationService _conversationService;
@@ -26,12 +27,42 @@ public class ChatHub : Hub
 
     public static string UserGroup(int userId) => $"user-{userId}";
 
+    /// <summary>
+    /// Retire toutes les connexions actives d'un utilisateur du groupe d'une
+    /// conversation. Utilisé lorsque l'utilisateur quitte ou est retiré d'un
+    /// groupe : la base de données ne suffit pas, le groupe SignalR doit aussi
+    /// être nettoyé pour éviter de continuer à diffuser des messages.
+    /// </summary>
+    public static async Task RemoveUserFromGroupAsync(
+        IHubContext<ChatHub> hub,
+        int userId,
+        int conversationId)
+    {
+        if (!UserConnections.TryGetValue(userId, out var connections))
+            return;
+
+        foreach (var connectionId in connections.Keys)
+        {
+            try
+            {
+                await hub.Groups.RemoveFromGroupAsync(connectionId, conversationId.ToString());
+            }
+            catch
+            {
+                // La connexion a pu se fermer entre-temps : rien à faire.
+            }
+        }
+    }
+
     public override async Task OnConnectedAsync()
     {
         var userId = GetCurrentUserId();
         if (userId > 0)
         {
             await Groups.AddToGroupAsync(Context.ConnectionId, UserGroup(userId));
+
+            var userConnections = UserConnections.GetOrAdd(userId, _ => new ConcurrentDictionary<string, byte>());
+            userConnections[Context.ConnectionId] = 0;
 
             var connections = OnlineConnections.AddOrUpdate(userId, 1, (_, current) => current + 1);
             if (connections == 1)

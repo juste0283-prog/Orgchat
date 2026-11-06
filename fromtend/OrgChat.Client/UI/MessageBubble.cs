@@ -31,6 +31,12 @@ public sealed class MessageBubble : Control
 
         var menu = new ContextMenuStrip();
         menu.Items.Add("Copier le message", null, (_, _) => CopyToClipboard());
+        if (IsOwn && !Message.IsDeleted)
+        {
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("Modifier", null, (_, _) => EditRequested?.Invoke(Message));
+            menu.Items.Add("Supprimer", null, (_, _) => DeleteRequested?.Invoke(Message));
+        }
         ContextMenuStrip = menu;
     }
 
@@ -43,6 +49,10 @@ public sealed class MessageBubble : Control
     public string? ReceiptText { get; set; }
 
     public event Action<AttachmentDto>? AttachmentRequested;
+
+    public event Action<MessageDto>? EditRequested;
+
+    public event Action<MessageDto>? DeleteRequested;
 
     public void Fit(int availableWidth)
     {

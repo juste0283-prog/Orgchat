@@ -62,6 +62,7 @@ public sealed class MainForm : Form
     private Panel _headerPanel = null!;
     private NotifyIcon _notifyIcon = null!;
     private int? _pendingNotificationConversationId;
+    private bool _allowClose;
 
     public MainForm(ApiClient api, ClientOptions options, AuthResponse auth)
     {
@@ -150,9 +151,10 @@ public sealed class MainForm : Form
         sidebar.Controls.Add(brand, 0, 0);
 
         var searchHost = new Panel { Dock = DockStyle.Fill, BackColor = Palette.Sidebar, Padding = new Padding(14, 6, 14, 6) };
-        var searchField = Ui.Field("Rechercher une conversation…", out _searchBox, height: 38);
+        var searchField = Ui.Field("Rechercher une conversation… (Entrée : messages)", out _searchBox, height: 38);
         searchField.Dock = DockStyle.Fill;
         _searchBox.TextChanged += (_, _) => RebuildConversationList();
+        _searchBox.KeyDown += OnSearchKeyDown;
         searchHost.Controls.Add(searchField);
         sidebar.Controls.Add(searchHost, 0, 1);
 
@@ -477,6 +479,10 @@ public sealed class MainForm : Form
     private void WireRealtime()
     {
         _realtime.MessageReceived += OnRealtimeMessage;
+        _realtime.MessageUpdated += OnRealtimeMessageUpdated;
+        _realtime.MessageDeleted += OnRealtimeMessageDeleted;
+        _realtime.ConversationDeleted += OnRealtimeConversationDeleted;
+        _realtime.ConversationUpdated += OnRealtimeConversationUpdated;
         _realtime.ConversationRead += OnConversationRead;
         _realtime.PresenceChanged += OnPresenceChanged;
         _realtime.UserTyping += OnUserTyping;
@@ -492,6 +498,7 @@ public sealed class MainForm : Form
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Quitter", null, (_, _) =>
         {
+            _allowClose = true;
             _notifyIcon.Visible = false;
             Close();
         });
@@ -636,6 +643,9 @@ public sealed class MainForm : Form
                 Online = IsConversationOnline(conversation)
             };
             item.Activate += async (_, _) => await SelectConversationAsync(conversation);
+            var menu = BuildConversationMenu(conversation);
+            if (menu is not null)
+                item.ContextMenuStrip = menu;
             _conversationList.Controls.Add(item);
         }
 
@@ -661,6 +671,133 @@ public sealed class MainForm : Form
             if (control is ConversationItem item)
                 item.Width = width;
         }
+    }
+
+    private ContextMenuStrip? BuildConversationMenu(ConversationDto conversation)
+    {
+        var me = conversation.Participants.FirstOrDefault(p => p.UserId == _auth.UserId);
+        var canLeave = conversation.IsGroup && me is not null;
+        var canDelete = !conversation.IsGroup ||
+                        me?.IsGroupAdmin == true ||
+                        conversation.CreatedById == _auth.UserId;
+
+        if (!canLeave && !canDelete)
+            return null;
+
+        var menu = new ContextMenuStrip();
+        if (canLeave)
+        {
+            menu.Items.Add("Quitter le groupe", null,
+                async (_, _) => await LeaveConversationAsync(conversation));
+        }
+
+        if (canDelete)
+        {
+            if (menu.Items.Count > 0)
+                menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("Supprimer la conversation", null,
+                async (_, _) => await DeleteConversationAsync(conversation));
+        }
+
+        return menu;
+    }
+
+    private async Task LeaveConversationAsync(ConversationDto conversation)
+    {
+        var title = conversation.DisplayTitle(_auth.UserId);
+        var confirm = MessageBox.Show(this,
+            $"Quitter « {title} » ? Vous ne recevrez plus ses messages.",
+            "Quitter le groupe",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Question);
+
+        if (confirm != DialogResult.Yes)
+            return;
+
+        try
+        {
+            await _api.LeaveConversationAsync(conversation.Id);
+            RemoveConversationLocally(conversation.Id);
+            await RefreshAllAsync(null);
+        }
+        catch (Exception ex)
+        {
+            ShowComposerError(Ui.FriendlyError(ex));
+        }
+    }
+
+    private async Task DeleteConversationAsync(ConversationDto conversation)
+    {
+        var title = conversation.DisplayTitle(_auth.UserId);
+        var confirm = MessageBox.Show(this,
+            $"Supprimer définitivement « {title} » pour tous les participants ?",
+            "Supprimer la conversation",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning);
+
+        if (confirm != DialogResult.Yes)
+            return;
+
+        try
+        {
+            await _api.DeleteConversationAsync(conversation.Id);
+            RemoveConversationLocally(conversation.Id);
+            await RefreshAllAsync(null);
+        }
+        catch (Exception ex)
+        {
+            ShowComposerError(Ui.FriendlyError(ex));
+        }
+    }
+
+    private void RemoveConversationLocally(int conversationId)
+    {
+        _conversations.RemoveAll(c => c.Id == conversationId);
+        _unreadCounts.Remove(conversationId);
+
+        if (_current?.Id == conversationId)
+        {
+            _current = null;
+            _messages.Clear();
+            _messageIds.Clear();
+            _typingUsers.Clear();
+            _typingExpirations.Clear();
+            UpdateHeader();
+            ShowEmptyState("Conversation supprimée", "Sélectionnez une autre conversation.");
+        }
+
+        UpdateUnreadIndicators();
+        RebuildConversationList();
+    }
+
+    private async void OnSearchKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.KeyCode != Keys.Enter)
+            return;
+
+        e.SuppressKeyPress = true;
+        e.Handled = true;
+
+        using var dialog = new MessageSearchForm(_api, _searchBox.Text.Trim());
+        if (dialog.ShowDialog(this) != DialogResult.OK || dialog.SelectedConversationId is not { } conversationId)
+            return;
+
+        var conversation = _conversations.FirstOrDefault(c => c.Id == conversationId);
+        if (conversation is null)
+        {
+            try
+            {
+                conversation = await _api.GetConversationAsync(conversationId);
+                _conversations.Add(conversation);
+            }
+            catch (Exception ex)
+            {
+                ShowComposerError(Ui.FriendlyError(ex));
+                return;
+            }
+        }
+
+        await SelectConversationAsync(conversation, force: true);
     }
 
     private async Task SelectConversationAsync(ConversationDto conversation, bool force = false)
@@ -884,6 +1021,8 @@ public sealed class MainForm : Form
             var bubble = new MessageBubble(message, message.SenderId == _auth.UserId,
                 showSender && message.SenderId != _auth.UserId);
             bubble.AttachmentRequested += OnAttachmentRequested;
+            bubble.EditRequested += OnEditMessageRequested;
+            bubble.DeleteRequested += OnDeleteMessageRequested;
             bubble.Fit(width);
             _messagesPanel.Controls.Add(bubble);
         }
@@ -912,6 +1051,8 @@ public sealed class MainForm : Form
             message.SenderId == _auth.UserId,
             _current?.IsGroup == true && message.SenderId != _auth.UserId);
         bubble.AttachmentRequested += OnAttachmentRequested;
+        bubble.EditRequested += OnEditMessageRequested;
+        bubble.DeleteRequested += OnDeleteMessageRequested;
         bubble.Fit(MessageWidth());
         _messagesPanel.Controls.Add(bubble);
         UpdateReadReceipts();
@@ -1163,6 +1304,96 @@ public sealed class MainForm : Form
         }
     }
 
+    private async void OnEditMessageRequested(MessageDto message)
+    {
+        if (_current is null || message.SenderId != _auth.UserId)
+            return;
+
+        using var dialog = new MessageEditForm(_api, message);
+        if (dialog.ShowDialog(this) == DialogResult.OK && dialog.UpdatedMessage is not null)
+            ApplyMessageUpdated(dialog.UpdatedMessage);
+    }
+
+    private async void OnDeleteMessageRequested(MessageDto message)
+    {
+        if (_current is null || message.SenderId != _auth.UserId)
+            return;
+
+        var confirm = MessageBox.Show(this,
+            "Supprimer ce message ? Cette action est définitive.",
+            "Supprimer le message",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning);
+
+        if (confirm != DialogResult.Yes)
+            return;
+
+        try
+        {
+            var deleted = await _api.DeleteMessageAsync(message.ConversationId, message.Id);
+            ApplyMessageDeleted(deleted);
+        }
+        catch (Exception ex)
+        {
+            ShowComposerError(Ui.FriendlyError(ex));
+        }
+    }
+
+    private void ApplyMessageUpdated(MessageDto message)
+    {
+        var index = _messages.FindIndex(m => m.Id == message.Id);
+        if (index >= 0)
+            _messages[index] = message;
+
+        if (_current?.Id == message.ConversationId && _messagesPanel.Visible)
+            RebuildMessages(scrollToBottom: false);
+
+        var conversation = _conversations.FirstOrDefault(c => c.Id == message.ConversationId);
+        if (conversation is not null && conversation.LastMessageAt is { } lastAt &&
+            Math.Abs((lastAt - message.CreatedAt).TotalSeconds) < 1)
+        {
+            conversation.LastMessagePreview = message.Preview;
+            RebuildConversationList();
+        }
+    }
+
+    private void ApplyMessageDeleted(MessageDeletedDto deleted)
+    {
+        var index = _messages.FindIndex(m => m.Id == deleted.Id);
+        if (index >= 0)
+            _messages.RemoveAt(index);
+        _messageIds.Remove(deleted.Id);
+
+        if (_current?.Id == deleted.ConversationId)
+            RebuildMessages(scrollToBottom: false);
+
+        _ = RefreshConversationSummariesAsync();
+    }
+
+    private async Task RefreshConversationSummariesAsync()
+    {
+        try
+        {
+            var conversations = await _api.GetConversationsAsync();
+            _conversations = conversations;
+            foreach (var conversation in _conversations)
+                _unreadCounts[conversation.Id] = conversation.UnreadCount;
+
+            var currentId = _current?.Id;
+            if (currentId is not null)
+                _current = _conversations.FirstOrDefault(c => c.Id == currentId) ?? _current;
+
+            UpdateUnreadIndicators();
+            RebuildConversationList();
+            if (_current is not null)
+                UpdateHeader();
+        }
+        catch
+        {
+            // Le résumé sera rafraîchi à la prochaine actualisation.
+        }
+    }
+
     // -------------------------------------------------------------- Realtime
 
     private void OnRealtimeMessage(MessageDto message)
@@ -1201,6 +1432,74 @@ public sealed class MainForm : Form
 
             if ((!IsWindowActive() || !isCurrentConversation) && _toastedMessageIds.Add(message.Id))
                 ShowMessageNotification(message);
+        }
+
+        RebuildConversationList();
+    }
+
+    private void OnRealtimeMessageUpdated(MessageDto message)
+    {
+        if (IsDisposed)
+            return;
+
+        if (InvokeRequired)
+        {
+            BeginInvoke(new Action<MessageDto>(OnRealtimeMessageUpdated), message);
+            return;
+        }
+
+        ApplyMessageUpdated(message);
+    }
+
+    private void OnRealtimeMessageDeleted(MessageDeletedDto deleted)
+    {
+        if (IsDisposed)
+            return;
+
+        if (InvokeRequired)
+        {
+            BeginInvoke(new Action<MessageDeletedDto>(OnRealtimeMessageDeleted), deleted);
+            return;
+        }
+
+        ApplyMessageDeleted(deleted);
+    }
+
+    private void OnRealtimeConversationDeleted(ConversationDeletedDto deleted)
+    {
+        if (IsDisposed)
+            return;
+
+        if (InvokeRequired)
+        {
+            BeginInvoke(new Action<ConversationDeletedDto>(OnRealtimeConversationDeleted), deleted);
+            return;
+        }
+
+        RemoveConversationLocally(deleted.Id);
+    }
+
+    private void OnRealtimeConversationUpdated(ConversationDto conversation)
+    {
+        if (IsDisposed)
+            return;
+
+        if (InvokeRequired)
+        {
+            BeginInvoke(new Action<ConversationDto>(OnRealtimeConversationUpdated), conversation);
+            return;
+        }
+
+        var index = _conversations.FindIndex(c => c.Id == conversation.Id);
+        if (index >= 0)
+            _conversations[index] = conversation;
+        else
+            _conversations.Add(conversation);
+
+        if (_current?.Id == conversation.Id)
+        {
+            _current = conversation;
+            UpdateHeader();
         }
 
         RebuildConversationList();
@@ -1617,6 +1916,8 @@ public sealed class MainForm : Form
         var conversation = _conversations.FirstOrDefault(c => c.Id == conversationId.Value);
         if (conversation is not null)
             await SelectConversationAsync(conversation);
+        else
+            await RefreshAllAsync(conversationId);
     }
 
     private void UpdateConversationPreview(MessageDto message)
@@ -1793,6 +2094,32 @@ public sealed class MainForm : Form
         _composerError.Text = message;
     }
 
+    /// <summary>Ferme réellement la fenêtre lors d'une déconnexion.</summary>
+    public void CloseForLogout()
+    {
+        _allowClose = true;
+        Close();
+    }
+
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        if (!_allowClose &&
+            e.CloseReason == CloseReason.UserClosing &&
+            _notifyIcon is not null)
+        {
+            e.Cancel = true;
+            Hide();
+            _notifyIcon.Visible = true;
+            _notifyIcon.BalloonTipTitle = "OrgChat continue en arrière-plan";
+            _notifyIcon.BalloonTipText = "Double-cliquez sur l'icône pour rouvrir la fenêtre.";
+            _notifyIcon.BalloonTipIcon = ToolTipIcon.Info;
+            _notifyIcon.ShowBalloonTip(4000);
+            return;
+        }
+
+        base.OnFormClosing(e);
+    }
+
     // --------------------------------------------------------------- Cleanup
 
     protected override void OnFormClosed(FormClosedEventArgs e)
@@ -1800,6 +2127,10 @@ public sealed class MainForm : Form
         _messageCts?.Cancel();
         _messageCts?.Dispose();
         _realtime.MessageReceived -= OnRealtimeMessage;
+        _realtime.MessageUpdated -= OnRealtimeMessageUpdated;
+        _realtime.MessageDeleted -= OnRealtimeMessageDeleted;
+        _realtime.ConversationDeleted -= OnRealtimeConversationDeleted;
+        _realtime.ConversationUpdated -= OnRealtimeConversationUpdated;
         _realtime.ConversationRead -= OnConversationRead;
         _realtime.PresenceChanged -= OnPresenceChanged;
         _realtime.UserTyping -= OnUserTyping;

@@ -237,3 +237,61 @@ public sealed class MessageCreateRequest
 {
     public string Content { get; set; } = string.Empty;
 }
+
+public sealed class MessageUpdateRequest
+{
+    public string Content { get; set; } = string.Empty;
+}
+
+public sealed class MessageDeletedDto
+{
+    public int Id { get; set; }
+    public int ConversationId { get; set; }
+    public DateTime DeletedAt { get; set; }
+}
+
+public sealed class ConversationDeletedDto
+{
+    public int Id { get; set; }
+    public DateTime DeletedAt { get; set; }
+}
+
+public sealed class MessageSearchResultDto
+{
+    public int MessageId { get; set; }
+    public int ConversationId { get; set; }
+    public int SenderId { get; set; }
+    public string SenderName { get; set; } = string.Empty;
+    public string ConversationTitle { get; set; } = string.Empty;
+    public string Content { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+
+    public DateTime LocalCreatedAt => CreatedAt.Kind == DateTimeKind.Utc
+        ? CreatedAt.ToLocalTime()
+        : DateTime.SpecifyKind(CreatedAt, DateTimeKind.Local);
+}
+
+public sealed class CreateUserRequest
+{
+    public string Username { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
+    public string Role { get; set; } = "User";
+}
+
+public sealed class UpdateUserRoleRequest
+{
+    public string Role { get; set; } = "User";
+}
+
+public sealed class ChangePasswordRequest
+{
+    public string CurrentPassword { get; set; } = string.Empty;
+    public string NewPassword { get; set; } = string.Empty;
+}
+
+public sealed class ResetPasswordRequest
+{
+    public string NewPassword { get; set; } = string.Empty;
+}

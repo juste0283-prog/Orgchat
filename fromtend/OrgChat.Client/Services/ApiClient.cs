@@ -61,6 +61,21 @@ public sealed class ApiClient : IDisposable
     public Task<UserDto> UpdateUserAsync(int id, UpdateUserRequest request, CancellationToken ct = default) =>
         SendAsync<UserDto>(HttpMethod.Put, $"api/users/{id}", request, auth: true, ct);
 
+    public Task<UserDto> CreateUserAsync(CreateUserRequest request, CancellationToken ct = default) =>
+        SendAsync<UserDto>(HttpMethod.Post, "api/users", request, auth: true, ct);
+
+    public Task<UserDto> UpdateUserRoleAsync(int id, UpdateUserRoleRequest request, CancellationToken ct = default) =>
+        SendAsync<UserDto>(HttpMethod.Put, $"api/users/{id}/role", request, auth: true, ct);
+
+    public Task ChangeMyPasswordAsync(ChangePasswordRequest request, CancellationToken ct = default) =>
+        SendNoContentAsync(HttpMethod.Put, "api/users/me/password", request, ct);
+
+    public Task ResetUserPasswordAsync(int id, ResetPasswordRequest request, CancellationToken ct = default) =>
+        SendNoContentAsync(HttpMethod.Put, $"api/users/{id}/password", request, ct);
+
+    public Task DeleteUserAsync(int id, CancellationToken ct = default) =>
+        SendNoContentAsync(HttpMethod.Delete, $"api/users/{id}", null, ct);
+
     public Task DeactivateUserAsync(int id, CancellationToken ct = default) =>
         SendNoContentAsync(HttpMethod.Put, $"api/users/{id}/deactivate", null, ct);
 
@@ -87,6 +102,12 @@ public sealed class ApiClient : IDisposable
     public Task RemoveParticipantAsync(int conversationId, int userId, CancellationToken ct = default) =>
         SendNoContentAsync(HttpMethod.Delete, $"api/conversations/{conversationId}/participants/{userId}", null, ct);
 
+    public Task LeaveConversationAsync(int conversationId, CancellationToken ct = default) =>
+        SendNoContentAsync(HttpMethod.Post, $"api/conversations/{conversationId}/leave", null, ct);
+
+    public Task DeleteConversationAsync(int conversationId, CancellationToken ct = default) =>
+        SendNoContentAsync(HttpMethod.Delete, $"api/conversations/{conversationId}", null, ct);
+
     // -------------------------------------------------------------- Messages
 
     public Task<PagedMessageResponse> GetMessagesAsync(int conversationId, int page = 1, int pageSize = 50, CancellationToken ct = default)
@@ -106,6 +127,30 @@ public sealed class ApiClient : IDisposable
             HttpMethod.Post,
             $"api/conversations/{conversationId}/messages",
             new MessageCreateRequest { Content = content },
+            auth: true,
+            ct);
+
+    public Task<MessageDto> UpdateMessageAsync(int conversationId, int messageId, string content, CancellationToken ct = default) =>
+        SendAsync<MessageDto>(
+            HttpMethod.Put,
+            $"api/conversations/{conversationId}/messages/{messageId}",
+            new MessageUpdateRequest { Content = content },
+            auth: true,
+            ct);
+
+    public Task<MessageDeletedDto> DeleteMessageAsync(int conversationId, int messageId, CancellationToken ct = default) =>
+        SendAsync<MessageDeletedDto>(
+            HttpMethod.Delete,
+            $"api/conversations/{conversationId}/messages/{messageId}",
+            null,
+            auth: true,
+            ct);
+
+    public Task<List<MessageSearchResultDto>> SearchMessagesAsync(string query, int take = 50, CancellationToken ct = default) =>
+        SendAsync<List<MessageSearchResultDto>>(
+            HttpMethod.Get,
+            $"api/search/messages?q={Uri.EscapeDataString(query)}&take={Math.Clamp(take, 1, 100)}",
+            null,
             auth: true,
             ct);
 
@@ -179,13 +224,19 @@ public sealed class ApiClient : IDisposable
 
     // -------------------------------------------------------- Notifications
 
-    public Task<List<NotificationDto>> GetNotificationsAsync(int take = 100, CancellationToken ct = default) =>
+    public Task<List<NotificationDto>> GetNotificationsAsync(int take = 100, int skip = 0, CancellationToken ct = default) =>
         SendAsync<List<NotificationDto>>(
             HttpMethod.Get,
-            $"api/notifications?take={Math.Clamp(take, 1, 200)}",
+            $"api/notifications?take={Math.Clamp(take, 1, 200)}&skip={Math.Max(0, skip)}",
             null,
             auth: true,
             ct);
+
+    public Task DeleteNotificationAsync(int id, CancellationToken ct = default) =>
+        SendNoContentAsync(HttpMethod.Delete, $"api/notifications/{id}", null, ct);
+
+    public Task ClearNotificationsAsync(CancellationToken ct = default) =>
+        SendNoContentAsync(HttpMethod.Delete, "api/notifications", null, ct);
 
     public Task<NotificationCountDto> GetNotificationUnreadCountAsync(CancellationToken ct = default) =>
         SendAsync<NotificationCountDto>(

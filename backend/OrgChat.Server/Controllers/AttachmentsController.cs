@@ -30,6 +30,7 @@ public class AttachmentsController : ControllerBase
         if (download is null)
             return NotFound(new { error = "Pièce jointe introuvable ou accès refusé." });
 
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
         return PhysicalFile(
             download.FullPath,
             download.Attachment.ContentType,

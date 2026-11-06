@@ -25,10 +25,33 @@ public class NotificationsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetNotifications([FromQuery] int take = 100)
+    public async Task<IActionResult> GetNotifications([FromQuery] int take = 100, [FromQuery] int skip = 0)
     {
-        var notifications = await _notificationService.GetForUserAsync(GetCurrentUserId(), take);
+        var notifications = await _notificationService.GetForUserAsync(GetCurrentUserId(), take, skip);
         return Ok(notifications);
+    }
+
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> DeleteNotification(int id)
+    {
+        var deleted = await _notificationService.DeleteAsync(id, GetCurrentUserId());
+        return deleted ? NoContent() : NotFound(new { error = "Notification introuvable." });
+    }
+
+    [HttpDelete]
+    public async Task<IActionResult> ClearNotifications()
+    {
+        var count = await _notificationService.ClearAsync(GetCurrentUserId());
+        return Ok(new { deletedCount = count });
+    }
+
+    [HttpPost("purge")]
+    public async Task<IActionResult> PurgeRead([FromQuery] int days = 30)
+    {
+        days = Math.Clamp(days, 1, 3650);
+        var count = await _notificationService.PurgeReadBeforeAsync(
+            GetCurrentUserId(), DateTime.UtcNow.AddDays(-days));
+        return Ok(new { deletedCount = count });
     }
 
     [HttpGet("unread-count")]
