@@ -1,11 +1,11 @@
-# OrgChat — Client desktop
+# OrgChat — Client desktop Windows
 
-Client Windows de messagerie d'entreprise pour l'API OrgChat.
+Client Windows Forms de messagerie d'entreprise pour l'API OrgChat.
 
-- **Technologie** : C# / .NET 10 / Windows Forms
+- **Technologie** : C# / .NET 10 / Windows Forms (`net10.0-windows`)
 - **Temps réel** : SignalR (`Microsoft.AspNetCore.SignalR.Client`)
 - **Transport REST** : `HttpClient` + JSON
-- **Projet** : `OrgChat.Client` (assembly `OrgChat.Client`, cible `net10.0-windows`)
+- **Projet** : `OrgChat.Client` (assembly `OrgChat.Client`)
 
 L'interface est entièrement construite par code (aucun fichier Designer), avec un thème sombre
 et des composants personnalisés (bulles de message, avatars, cartes de conversation).
@@ -15,12 +15,13 @@ et des composants personnalisés (bulles de message, avatars, cartes de conversa
 ## Prérequis
 
 - Windows 10 ou 11
-- [.NET 10 SDK](https://dotnet.microsoft.com/download) (ou une version de Visual Studio prenant en charge .NET 10, avec la charge de travail « Développement desktop .NET »)
+- [.NET 10 SDK](https://dotnet.microsoft.com/download) (ou Visual Studio avec la charge de
+  travail « Développement desktop .NET »)
 - Le serveur OrgChat démarré et accessible
 
 ## Lancement du serveur
 
-Le backend est un projet séparé. Depuis la racine du dépôt :
+Depuis la racine du dépôt :
 
 ```powershell
 dotnet run --project .\backend\OrgChat.Server\OrgChat.Server.csproj
@@ -33,11 +34,13 @@ Par défaut, le serveur écoute sur `http://localhost:5000` (profil `OrgChat.Ser
 
 ## Lancement du client
 
+Depuis la racine du dépôt :
+
 ```powershell
-dotnet run --project .\fromtend\OrgChat.Client\OrgChat.Client.csproj
+dotnet run --project .\frontend\OrgChat.Client\OrgChat.Client.csproj
 ```
 
-Ou, depuis `fromtend/` :
+Ou, depuis `frontend/` :
 
 ```powershell
 dotnet build .\OrgChat.Client.sln
@@ -46,8 +49,8 @@ dotnet run --project .\OrgChat.Client\OrgChat.Client.csproj
 
 L'exécutable généré se trouve dans :
 
-```
-fromtend\OrgChat.Client\bin\Debug\net10.0-windows\OrgChat.Client.exe
+```text
+frontend\OrgChat.Client\bin\Debug\net10.0-windows\OrgChat.Client.exe
 ```
 
 ---
@@ -72,7 +75,7 @@ L'URL de base est résolue dans cet ordre (la dernière valeur gagne) :
 
    ```powershell
    $env:ORGCHAT_BASEURL = "http://192.168.1.10:5000"
-   dotnet run --project .\fromtend\OrgChat.Client\OrgChat.Client.csproj
+   dotnet run --project .\frontend\OrgChat.Client\OrgChat.Client.csproj
    ```
 
 4. Champ **Serveur** de l'écran de connexion (modifiable sans redémarrer le client).
@@ -86,62 +89,73 @@ Les barres obliques finales sont supprimées automatiquement.
 
 ## Fonctionnalités
 
-### Authentification
+### Authentification et session
 
 - Connexion par nom d'utilisateur ou e-mail et mot de passe
-- Création de compte (nom d'affichage, nom d'utilisateur, e-mail, mot de passe)
-- Jeton JWT conservé en mémoire pour la session (aucune persistance sur disque)
-- Déconnexion et retour à l'écran de connexion
+- Création de compte
+- Session persistante : jeton et URL serveur stockés dans
+  `%LOCALAPPDATA%\OrgChat\session.dat`, chiffrés avec **DPAPI**
+- Restauration automatique de la session au démarrage via `GET /api/users/me`
+- Session supprimée si le jeton est invalide ou le compte désactivé/supprimé
+- Déconnexion : efface la session et réaffiche l'écran de connexion
 
 ### Conversations
 
-- Liste des conversations de l'utilisateur, triées par dernière activité
-- Recherche locale par titre ou par participant
-- Création d'une conversation privée (exactement un autre participant)
-- Création d'un groupe (titre + au moins un autre participant)
-- Aperçu du dernier message et de son horodatage
+- Liste des conversations triées par dernière activité
+- Recherche locale par titre ou participant
+- Création d'une conversation privée ou d'un groupe
+- Aperçu du dernier message et horodatage
 - Gestion des participants d'un groupe (ajout / retrait)
+- Menu contextuel : quitter un groupe, supprimer une conversation
+- Mise à jour temps réel des participants et suppressions
 
 ### Messages
 
-- Historique paginé avec le bouton **Charger les messages plus anciens**
+- Historique paginé avec **Charger les messages plus anciens**
 - Envoi avec `Entrée`, retour à la ligne avec `Maj+Entrée`
-- Envoi via SignalR lorsque la connexion est active, repli automatique sur l'API REST sinon
-- Réception en temps réel des messages des autres membres
-- Affichage chronologique, bulles alignées selon l'auteur, heure d'envoi
-- Accusé de lecture sur le dernier message envoyé : `Vu` en privé, `Vu par X/Y` en groupe
-- Reconnexion automatique du hub SignalR
-- Pièces jointes : bouton trombone, upload `multipart/form-data`, légende optionnelle,
-  affichage dans la bulle, téléchargement sécurisé et ouverture avec l'application par défaut
-  (limite serveur : 20 Mo, extensions exécutables refusées)
-- Indicateur de saisie « X est en train d'écrire… » avec expiration automatique
-- Présence en ligne/hors ligne : pastille sur les avatars des conversations et de l'en-tête
+- Envoi via SignalR lorsque connecté, repli automatique sur l'API REST sinon
+- Réception temps réel des nouveaux messages, modifications et suppressions
+- Menu contextuel sur ses propres messages : **Modifier** / **Supprimer**
+- Indicateur « modifié » et message supprimé masqué
+- Accusés de lecture : `Vu` en privé, `Vu par X/Y` en groupe
+- Pièces jointes : upload `multipart/form-data`, légende optionnelle, téléchargement sécurisé
+  (limite serveur 20 Mo, extensions exécutables refusées)
+- Indicateur de saisie et présence en ligne/hors ligne
+- Recherche globale de messages (`Entrée` dans la barre de recherche)
 
-### Notifications et messages non lus
+### Notifications et non-lus
 
-- Compteur de non-lus par conversation (pastille numérique, plafonnée à `99+`)
-- Compteurs initialisés depuis le serveur (`ConversationDto.UnreadCount`) et synchronisés à chaque rafraîchissement
-- Total des non-lus reporté dans le titre de la fenêtre
-- Notification Windows dans la zone de notification lorsqu'un message arrive alors que la
-  conversation n'est pas affichée ou que la fenêtre est inactive
-- Clic sur la notification ou sur l'icône : restauration de la fenêtre et ouverture de la conversation
-- Cloche avec badge du nombre de notifications persistées, historique consultable dans
-  `NotificationsForm`, marquage lu / tout lu et clic pour ouvrir la conversation
-- Remise à zéro automatique à l'ouverture de la conversation ou au retour au premier plan,
-  avec persistance serveur via `POST /api/conversations/{id}/read` (ou `MarkAsRead` SignalR)
+- Compteur de non-lus par conversation et total dans le titre de la fenêtre
+- Notification Windows lorsqu'un message arrive alors que la fenêtre est inactive
+- Clic sur la notification : restauration de la fenêtre et ouverture de la conversation
+- Centre de notifications avec pagination, marquage lu, suppression unitaire, « Tout supprimer »
+  et navigation vers la conversation
+- Purge serveur des notifications lues anciennes
 
-### Utilisateurs et profil
+### Utilisateurs, profil et administration
 
 - Annuaire des utilisateurs
-- Édition de son profil (nom affiché, e-mail, mot de passe)
-- Administration : désactivation / réactivation de comptes (si le compte connecté est administrateur)
+- Édition de son profil (nom affiché, e-mail)
+- Changement de son propre mot de passe
+- Administration (si le compte connecté est admin) :
+  - création de compte
+  - promotion/rétrogradation de rôle
+  - réinitialisation de mot de passe
+  - activation/désactivation
+  - suppression/anonymisation
+
+### Fenêtre et cycle de vie
+
+- Fermer la fenêtre principale la masque dans la **zone de notification (tray)**
+- Le menu du tray permet de rouvrir la fenêtre ou quitter complètement
+- La déconnexion ferme réellement la fenêtre principale et revient à la connexion
 
 ---
 
 ## Structure du projet
 
-```
-fromtend/
+```text
+frontend/
 ├── OrgChat.Client.sln
 ├── README.md
 └── OrgChat.Client/
@@ -157,18 +171,23 @@ fromtend/
     ├── Services/
     │   ├── ApiClient.cs                 # Tous les appels REST
     │   ├── ApiException.cs              # Erreurs HTTP normalisées
-    │   └── RealtimeChatService.cs       # Hub SignalR, reconnexion, événements
+    │   ├── RealtimeChatService.cs       # Hub SignalR, reconnexion, événements
+    │   └── SessionStore.cs              # Session DPAPI
     ├── Forms/
     │   ├── LoginForm.cs                 # Connexion / inscription / URL serveur
-    │   ├── MainForm.cs                  # Conversations, messages, temps réel
+    │   ├── MainForm.cs                  # Conversations, messages, recherche, tray
     │   ├── NewConversationForm.cs       # Création privée ou groupe
     │   ├── GroupMembersForm.cs          # Participants d'un groupe
-    │   ├── NotificationsForm.cs         # Historique des notifications persistées
+    │   ├── MessageEditForm.cs           # Édition d'un message
+    │   ├── MessageSearchForm.cs         # Recherche globale
+    │   ├── NotificationsForm.cs         # Centre de notifications
     │   ├── ProfileForm.cs               # Édition du profil
+    │   ├── ChangePasswordForm.cs        # Mot de passe personnel/admin
+    │   ├── CreateUserForm.cs            # Création de compte admin
     │   └── UsersForm.cs                 # Annuaire et administration
     └── UI/
         ├── Palette.cs                   # Couleurs du thème
-        ├── Ui.cs                        # Fabriques de contrôles et helpers de mise en page
+        ├── Ui.cs                        # Fabriques de contrôles et helpers
         ├── RoundedPanel.cs
         ├── RoundedButton.cs
         ├── AvatarControl.cs
@@ -181,16 +200,14 @@ fromtend/
 ## Notes techniques
 
 - Toutes les URL de l'API sont centralisées dans `Services/ApiClient.cs`.
-- Le jeton JWT est fourni à SignalR via `AccessTokenProvider`, sans duplication de logique d'authentification.
+- Le jeton JWT est fourni à SignalR via `AccessTokenProvider`, sans duplication de logique.
 - Les erreurs HTTP sont converties en `ApiException` avec le message renvoyé par le serveur.
-- `WFO1000` est désactivé (`NoWarn`) car les contrôles sont créés par code, sans sérialisation Designer.
+- `WFO1000` est désactivé (`NoWarn`) car les contrôles sont créés par code.
 - Le client ne référence pas le projet `backend/` ; il communique uniquement par HTTP et WebSocket.
 
 ## Limites connues
 
 - Application Windows uniquement (Windows Forms).
-- Les compteurs de non-lus et les notifications sont persistés côté serveur et resynchronisés à chaque rafraîchissement.
-- Pas d'édition / suppression de message.
 - Pas de cache hors ligne : l'historique nécessite une connexion au serveur.
-- Le jeton n'est pas persisté : il faut se reconnecter à chaque lancement.
 - Le thème est sombre et n'est pas configurable.
+- Les notifications push hors LAN/VPN ne sont pas prises en charge.

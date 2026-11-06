@@ -640,9 +640,11 @@ dotnet run
 - `Contracts/Auth/RegisterRequest.cs`, `LoginRequest.cs`, `AuthResponse.cs`
 - `Contracts/Users/UserDto.cs`, `UpdateUserRequest.cs`
 - `Contracts/Conversations/ConversationDto.cs`, `ConversationCreateRequest.cs`, `ConversationParticipantDto.cs`, `AddParticipantRequest.cs`, `ReadReceiptDto.cs`
-- `Contracts/Messages/MessageDto.cs`, `MessageCreateRequest.cs`, `PagedMessageResponse.cs`, `AttachmentDto.cs`
+- `Contracts/Messages/MessageDto.cs`, `MessageCreateRequest.cs`, `MessageUpdateRequest.cs`, `MessageDeletedDto.cs`, `MessageSearchResultDto.cs`, `PagedMessageResponse.cs`, `AttachmentDto.cs`
+- `Contracts/Conversations/ConversationDeletedDto.cs`
 - `Contracts/Notifications/NotificationDto.cs`
 - `Contracts/Realtime/PresenceChangedDto.cs`, `UserTypingDto.cs`
+- `Contracts/Users/CreateUserRequest.cs`, `UpdateUserRoleRequest.cs`, `ChangePasswordRequest.cs`, `ResetPasswordRequest.cs`
 - `Contracts/Services/IPasswordHasher.cs`, `ITokenService.cs`
 - `Entities/*`, `Enums/*`
 
@@ -654,16 +656,24 @@ dotnet run
 
 ### OrgChat.Server
 - `Program.cs` (DI, auth JWT, SignalR, migration auto)
-- `Controllers/AuthController.cs`, `UsersController.cs`, `ConversationsController.cs`, `MessagesController.cs`, `AttachmentsController.cs`, `NotificationsController.cs`
+- `Controllers/AuthController.cs`, `UsersController.cs`, `ConversationsController.cs`, `MessagesController.cs`, `AttachmentsController.cs`, `NotificationsController.cs`, `SearchController.cs`
 - `Hubs/ChatHub.cs`
-- `Services/ConversationService.cs`, `MessageService.cs`, `AttachmentService.cs`, `NotificationService.cs`
+- `Services/ConversationService.cs`, `MessageService.cs`, `AttachmentService.cs`, `NotificationService.cs`, `MaintenanceService.cs`
 - `appsettings.json`, `launchSettings.json`
 
 ### OrgChat.Tests
 - `OrgChatTestFactory.cs`
 - `AuthIntegrationTests.cs`, `ConversationIntegrationTests.cs`, `MessageIntegrationTests.cs`
 - `ReadReceiptIntegrationTests.cs`, `AttachmentIntegrationTests.cs`, `NotificationIntegrationTests.cs`
+- `FeatureIntegrationTests.cs`
 - `AppDbContextSmokeTests.cs`
+
+### Client WinForms (`frontend/OrgChat.Client`)
+- `Services/ApiClient.cs`, `RealtimeChatService.cs`, `SessionStore.cs` (DPAPI)
+- `Forms/MainForm.cs` (messages, recherche, tray, temps réel)
+- `Forms/MessageEditForm.cs`, `MessageSearchForm.cs`, `NotificationsForm.cs`
+- `Forms/UsersForm.cs`, `CreateUserForm.cs`, `ChangePasswordForm.cs`, `ProfileForm.cs`
+- `UI/MessageBubble.cs` (menu contextuel modifier/supprimer)
 
 ### Scripts
 - `scripts/postgresql/init.sql`
@@ -672,7 +682,21 @@ dotnet run
 - `OrgChat.sln`
 
 ### Documentation
-- `DOCUMENTATION_TECHNIQUE.md`
+- `DOCUMENTATION_TECHNIQUE.md`, `README.md`
+
+---
+
+## 15. Client Windows Forms — fonctionnalités complémentaires
+
+- **Session persistante** : le jeton et l'URL du serveur sont stockés dans `%LOCALAPPDATA%\OrgChat\session.dat`, chiffrés avec DPAPI (`ProtectedData`, portée utilisateur). La session est restaurée au démarrage via `GET /api/users/me`, puis supprimée si le jeton est invalide ou le compte inactif.
+- **Déconnexion** : efface la session DPAPI, ferme réellement la fenêtre principale (`CloseForLogout`) et réaffiche l'écran de connexion.
+- **Mode tray** : fermer la fenêtre principale la masque dans la zone de notification ; l'application reste connectée pour recevoir les messages. Le menu du tray permet de rouvrir ou quitter.
+- **Recherche** : la barre de recherche principale ouvre `MessageSearchForm` (touche Entrée) et permet d'accéder directement au message dans sa conversation.
+- **Messages** : menu contextuel sur ses propres messages pour modifier ou supprimer ; les mises à jour arrivent en temps réel via `MessageUpdated` / `MessageDeleted`.
+- **Conversations** : menu contextuel pour quitter un groupe ou supprimer une conversation, avec confirmation.
+- **Notifications** : centre de notifications avec pagination, suppression unitaire, « Tout supprimer », marquage lu et navigation vers la conversation.
+- **Administration** : `UsersForm` permet de créer un compte, changer un rôle, réinitialiser un mot de passe, activer/désactiver et supprimer/anonymiser un compte.
+- **Profil** : modification du profil et changement du mot de passe personnel.
 
 ---
 

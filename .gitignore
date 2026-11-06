@@ -1,6 +1,10 @@
 # Base de données SQLite (côté serveur uniquement)
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
+*.sqlite-shm
+*.sqlite-wal
 /org-chat.db
 /OrgChat.db
 
