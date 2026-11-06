@@ -62,13 +62,16 @@ public sealed class MainForm : Form
     private Panel _headerPanel = null!;
     private NotifyIcon _notifyIcon = null!;
     private int? _pendingNotificationConversationId;
+    private readonly int? _initialConversationId;
     private bool _allowClose;
 
-    public MainForm(ApiClient api, ClientOptions options, AuthResponse auth)
+    public MainForm(ApiClient api, ClientOptions options, AuthResponse auth,
+        int? initialConversationId = null)
     {
         _api = api;
         _options = options;
         _auth = auth;
+        _initialConversationId = initialConversationId;
         _realtime = new RealtimeChatService(api);
 
         Ui.StyleForm(this);
@@ -82,6 +85,7 @@ public sealed class MainForm : Form
 
         BuildUi();
         BuildNotifications();
+        Localization.Apply(this);
         WireRealtime();
         _markReadTimer.Tick += OnMarkReadTimerTick;
         _typingTimer.Tick += async (_, _) => await SetTypingAsync(false);
@@ -94,6 +98,10 @@ public sealed class MainForm : Form
     }
 
     public event EventHandler? LogoutRequested;
+
+    public event EventHandler? SettingsChanged;
+
+    public int? CurrentConversationId => _current?.Id;
 
     // ------------------------------------------------------------------ UI
 
@@ -318,12 +326,17 @@ public sealed class MainForm : Form
         var actions = new FlowLayoutPanel
         {
             Dock = DockStyle.Right,
-            Width = 370,
+            Width = 420,
             FlowDirection = FlowDirection.RightToLeft,
             WrapContents = false,
             BackColor = Palette.Background,
             Padding = new Padding(0, 17, 20, 0)
         };
+
+        var settingsButton = Ui.Ghost("⚙", 38, 38);
+        settingsButton.Margin = new Padding(8, 0, 0, 0);
+        settingsButton.Click += OnSettingsClicked;
+        actions.Controls.Add(settingsButton);
 
         _refreshButton = Ui.Ghost("⟳", 38, 38);
         _refreshButton.Margin = new Padding(8, 0, 0, 0);
@@ -353,7 +366,7 @@ public sealed class MainForm : Form
 
         _headerPanel.Resize += (_, _) =>
         {
-            var width = Math.Max(120, _headerPanel.ClientSize.Width - 76 - 390);
+            var width = Math.Max(120, _headerPanel.ClientSize.Width - 76 - 440);
             _titleLabel.Width = width;
             _subtitleLabel.Width = width;
         };
@@ -494,9 +507,10 @@ public sealed class MainForm : Form
     private void BuildNotifications()
     {
         var menu = new ContextMenuStrip();
-        menu.Items.Add("Ouvrir OrgChat", null, (_, _) => RestoreFromNotification());
+        menu.Items.Add(Localization.T("Ouvrir OrgChat"), null, (_, _) => RestoreFromNotification());
+        menu.Items.Add(Localization.T("Paramètres"), null, (_, _) => OnSettingsClicked(this, EventArgs.Empty));
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Quitter", null, (_, _) =>
+        menu.Items.Add(Localization.T("Quitter"), null, (_, _) =>
         {
             _allowClose = true;
             _notifyIcon.Visible = false;
@@ -544,7 +558,7 @@ public sealed class MainForm : Form
         try
         {
             await LoadProfileAsync();
-            await RefreshAllAsync(null);
+            await RefreshAllAsync(_initialConversationId);
             await RefreshPresenceAsync();
             await RefreshNotificationCountAsync();
         }
@@ -576,7 +590,7 @@ public sealed class MainForm : Form
     {
         var display = string.IsNullOrWhiteSpace(_auth.DisplayName) ? _auth.Username : _auth.DisplayName;
         _meNameLabel.Text = display;
-        _meHandleLabel.Text = "@" + _auth.Username + (_auth.IsAdmin ? " · admin" : string.Empty);
+        _meHandleLabel.Text = "@" + _auth.Username + (_auth.IsAdmin ? Localization.T(" · admin") : string.Empty);
         _meAvatar.DisplayName = display;
         _meAvatar.Seed = _auth.UserId.ToString();
         _meAvatar.Invalidate();
@@ -652,7 +666,7 @@ public sealed class MainForm : Form
         if (conversations.Count == 0)
         {
             var empty = Ui.Label(
-                _conversations.Count == 0 ? "Aucune conversation." : "Aucun résultat.",
+                Localization.T(_conversations.Count == 0 ? "Aucune conversation." : "Aucun résultat."),
                 Palette.Small,
                 Palette.Faint);
             empty.Margin = new Padding(20, 16, 0, 0);
@@ -687,7 +701,7 @@ public sealed class MainForm : Form
         var menu = new ContextMenuStrip();
         if (canLeave)
         {
-            menu.Items.Add("Quitter le groupe", null,
+            menu.Items.Add(Localization.T("Quitter le groupe"), null,
                 async (_, _) => await LeaveConversationAsync(conversation));
         }
 
@@ -695,7 +709,7 @@ public sealed class MainForm : Form
         {
             if (menu.Items.Count > 0)
                 menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Supprimer la conversation", null,
+            menu.Items.Add(Localization.T("Supprimer la conversation"), null,
                 async (_, _) => await DeleteConversationAsync(conversation));
         }
 
@@ -706,8 +720,8 @@ public sealed class MainForm : Form
     {
         var title = conversation.DisplayTitle(_auth.UserId);
         var confirm = MessageBox.Show(this,
-            $"Quitter « {title} » ? Vous ne recevrez plus ses messages.",
-            "Quitter le groupe",
+            Localization.F("Quitter « {0} » ? Vous ne recevrez plus ses messages.", title),
+            Localization.T("Quitter le groupe"),
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Question);
 
@@ -731,8 +745,8 @@ public sealed class MainForm : Form
     {
         var title = conversation.DisplayTitle(_auth.UserId);
         var confirm = MessageBox.Show(this,
-            $"Supprimer définitivement « {title} » pour tous les participants ?",
-            "Supprimer la conversation",
+            Localization.F("Supprimer définitivement « {0} » pour tous les participants ?", title),
+            Localization.T("Supprimer la conversation"),
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Warning);
 
@@ -837,8 +851,8 @@ public sealed class MainForm : Form
         {
             _headerAvatar.Visible = false;
             _membersButton.Visible = false;
-            _titleLabel.Text = "Bienvenue sur OrgChat";
-            _subtitleLabel.Text = "Sélectionnez une conversation pour commencer.";
+            _titleLabel.Text = Localization.T("Bienvenue sur OrgChat");
+            _subtitleLabel.Text = Localization.T("Sélectionnez une conversation pour commencer.");
             SetComposerEnabled(false);
             return;
         }
@@ -871,9 +885,9 @@ public sealed class MainForm : Form
         _subtitleLabel.Text = typing.Count switch
         {
             0 => _current.ParticipantSummary(_auth.UserId),
-            1 => $"{typing[0]} est en train d’écrire…",
-            2 => $"{typing[0]} et {typing[1]} écrivent…",
-            _ => $"{typing.Count} personnes écrivent…"
+            1 => Localization.F("{0} est en train d’écrire…", typing[0]),
+            2 => Localization.F("{0} et {1} écrivent…", typing[0], typing[1]),
+            _ => Localization.F("{0} personnes écrivent…", typing.Count)
         };
     }
 
@@ -887,7 +901,7 @@ public sealed class MainForm : Form
         if (user is not null)
             return string.IsNullOrWhiteSpace(user.DisplayName) ? user.Username : user.DisplayName;
 
-        return string.IsNullOrWhiteSpace(fallback) ? "Quelqu’un" : fallback;
+        return string.IsNullOrWhiteSpace(fallback) ? Localization.T("Quelqu’un") : fallback;
     }
 
     private bool IsConversationOnline(ConversationDto conversation) =>
@@ -899,9 +913,9 @@ public sealed class MainForm : Form
         _composerBox.Enabled = enabled;
         _attachButton.Enabled = enabled && !_sending;
         _sendButton.Enabled = enabled && !_sending;
-        _composerBox.PlaceholderText = enabled
+        _composerBox.PlaceholderText = Localization.T(enabled
             ? "Écrivez un message…  (Entrée pour envoyer)"
-            : "Sélectionnez une conversation pour écrire.";
+            : "Sélectionnez une conversation pour écrire.");
 
         if (!enabled)
         {
@@ -924,7 +938,7 @@ public sealed class MainForm : Form
 
         var conversationId = _current.Id;
         _loadOlderLink.Enabled = false;
-        _loadOlderLink.Text = "Chargement…";
+        _loadOlderLink.Text = Localization.T("Chargement…");
 
         try
         {
@@ -959,7 +973,7 @@ public sealed class MainForm : Form
             if (ReferenceEquals(_messageCts, cts))
             {
                 _loadOlderLink.Enabled = true;
-                if (_loadOlderLink.Text == "Chargement…")
+                if (_loadOlderLink.Text == Localization.T("Chargement…"))
                     UpdateOlderLink();
             }
         }
@@ -973,7 +987,7 @@ public sealed class MainForm : Form
         var version = _loadVersion;
         _loadingOlder = true;
         _loadOlderLink.Enabled = false;
-        _loadOlderLink.Text = "Chargement…";
+        _loadOlderLink.Text = Localization.T("Chargement…");
 
         try
         {
@@ -1005,7 +1019,7 @@ public sealed class MainForm : Form
         {
             _loadingOlder = false;
             _loadOlderLink.Enabled = true;
-            if (_loadOlderLink.Text == "Chargement…")
+            if (_loadOlderLink.Text == Localization.T("Chargement…"))
                 UpdateOlderLink();
         }
     }
@@ -1085,7 +1099,7 @@ public sealed class MainForm : Form
     private void UpdateOlderLink()
     {
         _loadOlderLink.Visible = _hasMore;
-        _loadOlderLink.Text = "Charger les messages plus anciens";
+        _loadOlderLink.Text = Localization.T("Charger les messages plus anciens");
     }
 
     private void ShowConversationView()
@@ -1096,8 +1110,8 @@ public sealed class MainForm : Form
 
     private void ShowEmptyState(string title, string subtitle)
     {
-        _emptyTitle.Text = title;
-        _emptySubtitle.Text = subtitle;
+        _emptyTitle.Text = Localization.T(title);
+        _emptySubtitle.Text = Localization.T(subtitle);
         _emptyState.Visible = true;
         _messagesPanel.Visible = false;
         _loadOlderLink.Visible = false;
@@ -1205,8 +1219,8 @@ public sealed class MainForm : Form
 
         using var dialog = new OpenFileDialog
         {
-            Title = "Joindre un fichier",
-            Filter = "Tous les fichiers (*.*)|*.*",
+            Title = Localization.T("Joindre un fichier"),
+            Filter = Localization.T("Tous les fichiers (*.*)|*.*"),
             CheckFileExists = true,
             Multiselect = false
         };
@@ -1217,13 +1231,13 @@ public sealed class MainForm : Form
         var info = new FileInfo(dialog.FileName);
         if (info.Length <= 0)
         {
-            ShowComposerError("Le fichier sélectionné est vide.");
+            ShowComposerError(Localization.T("Le fichier sélectionné est vide."));
             return;
         }
 
         if (info.Length > 20 * 1024 * 1024)
         {
-            ShowComposerError("La pièce jointe dépasse la taille maximale de 20 Mo.");
+            ShowComposerError(Localization.T("La pièce jointe dépasse la taille maximale de 20 Mo."));
             return;
         }
 
@@ -1296,7 +1310,7 @@ public sealed class MainForm : Form
         {
             MessageBox.Show(this,
                 Ui.FriendlyError(ex),
-                "Pièce jointe",
+                Localization.T("Pièce jointe"),
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
         }
@@ -1322,8 +1336,8 @@ public sealed class MainForm : Form
             return;
 
         var confirm = MessageBox.Show(this,
-            "Supprimer ce message ? Cette action est définitive.",
-            "Supprimer le message",
+            Localization.T("Supprimer ce message ? Cette action est définitive."),
+            Localization.T("Supprimer le message"),
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Warning);
 
@@ -1742,7 +1756,9 @@ public sealed class MainForm : Form
                 p.LastReadAt is { } readAt && ToUtc(readAt) >= lastOwnAt);
 
             if (readCount > 0)
-                receipt = _current.IsGroup ? $"Vu par {readCount}/{others.Count}" : "Vu";
+                receipt = _current.IsGroup
+                    ? Localization.F("Vu par {0}/{1}", readCount, others.Count)
+                    : Localization.T("Vu");
         }
 
         var width = MessageWidth();
@@ -1787,10 +1803,12 @@ public sealed class MainForm : Form
     private void UpdateUnreadIndicators()
     {
         var total = _unreadCounts.Values.Sum();
-        Text = total > 0 ? $"OrgChat ({total})" : "OrgChat";
+        Text = total > 0 ? Localization.F("OrgChat ({0})", total) : "OrgChat";
 
         if (_notifyIcon is not null)
-            _notifyIcon.Text = total > 0 ? $"OrgChat — {total} message(s) non lu(s)" : "OrgChat";
+            _notifyIcon.Text = total > 0
+                ? Localization.F("OrgChat — {0} message(s) non lu(s)", total)
+                : "OrgChat";
     }
 
     private void ShowMessageNotification(MessageDto message)
@@ -1799,9 +1817,9 @@ public sealed class MainForm : Form
             return;
 
         var conversation = _conversations.FirstOrDefault(c => c.Id == message.ConversationId);
-        var title = conversation?.DisplayTitle(_auth.UserId) ?? "Nouveau message";
+        var title = conversation?.DisplayTitle(_auth.UserId) ?? Localization.T("Nouveau message");
         var sender = ResolveSenderName(message, conversation);
-        var body = $"{sender} : {message.Preview}";
+        var body = Localization.F("{0} : {1}", sender, message.Preview);
 
         ShowNotificationBalloon(message.ConversationId, title, body);
     }
@@ -1812,11 +1830,11 @@ public sealed class MainForm : Form
             return;
 
         var title = string.IsNullOrWhiteSpace(notification.ConversationTitle)
-            ? "Nouveau message"
+            ? Localization.T("Nouveau message")
             : notification.ConversationTitle;
         var body = string.IsNullOrWhiteSpace(notification.SenderName)
             ? notification.Preview
-            : $"{notification.SenderName} : {notification.Preview}";
+            : Localization.F("{0} : {1}", notification.SenderName, notification.Preview);
 
         ShowNotificationBalloon(notification.ConversationId, title, body);
     }
@@ -1894,7 +1912,9 @@ public sealed class MainForm : Form
         if (user is not null)
             return string.IsNullOrWhiteSpace(user.DisplayName) ? user.Username : user.DisplayName;
 
-        return string.IsNullOrWhiteSpace(message.SenderUsername) ? "Nouveau message" : message.SenderUsername;
+        return string.IsNullOrWhiteSpace(message.SenderUsername)
+            ? Localization.T("Nouveau message")
+            : message.SenderUsername;
     }
 
     private async void RestoreFromNotification()
@@ -1950,10 +1970,10 @@ public sealed class MainForm : Form
     {
         (_statusLabel.Text, _statusLabel.ForeColor) = state switch
         {
-            RealtimeState.Connected => ("● En ligne", Palette.Success),
-            RealtimeState.Connecting => ("● Connexion…", Palette.Warning),
-            RealtimeState.Reconnecting => ("● Reconnexion…", Palette.Warning),
-            _ => ("● Hors ligne", Palette.Danger)
+            RealtimeState.Connected => (Localization.T("● En ligne"), Palette.Success),
+            RealtimeState.Connecting => (Localization.T("● Connexion…"), Palette.Warning),
+            RealtimeState.Reconnecting => (Localization.T("● Reconnexion…"), Palette.Warning),
+            _ => (Localization.T("● Hors ligne"), Palette.Danger)
         };
 
         if (state is RealtimeState.Disconnected or RealtimeState.Reconnecting)
@@ -2079,11 +2099,22 @@ public sealed class MainForm : Form
         }
     }
 
+    private void OnSettingsClicked(object? sender, EventArgs e)
+    {
+        using (var dialog = new SettingsForm())
+        {
+            if (dialog.ShowDialog(this) != DialogResult.OK)
+                return;
+        }
+
+        SettingsChanged?.Invoke(this, EventArgs.Empty);
+    }
+
     private void OnLogoutClicked(object? sender, EventArgs e)
     {
         var confirm = MessageBox.Show(this,
-            "Voulez-vous vous déconnecter d'OrgChat ?",
-            "Déconnexion",
+            Localization.T("Voulez-vous vous déconnecter d'OrgChat ?"),
+            Localization.T("Déconnexion"),
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Question);
 
@@ -2103,6 +2134,13 @@ public sealed class MainForm : Form
         Close();
     }
 
+    /// <summary>Ferme la fenêtre pour reconstruire l'interface avec de nouveaux réglages.</summary>
+    public void CloseForRebuild()
+    {
+        _allowClose = true;
+        Close();
+    }
+
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
         if (!_allowClose &&
@@ -2112,8 +2150,8 @@ public sealed class MainForm : Form
             e.Cancel = true;
             Hide();
             _notifyIcon.Visible = true;
-            _notifyIcon.BalloonTipTitle = "OrgChat continue en arrière-plan";
-            _notifyIcon.BalloonTipText = "Double-cliquez sur l'icône pour rouvrir la fenêtre.";
+            _notifyIcon.BalloonTipTitle = Localization.T("OrgChat continue en arrière-plan");
+            _notifyIcon.BalloonTipText = Localization.T("Double-cliquez sur l'icône pour rouvrir la fenêtre.");
             _notifyIcon.BalloonTipIcon = ToolTipIcon.Info;
             _notifyIcon.ShowBalloonTip(4000);
             return;

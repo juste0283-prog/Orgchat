@@ -1,3 +1,5 @@
+using OrgChat.Client.Services;
+
 namespace OrgChat.Client.Models;
 
 public sealed class LoginRequest
@@ -86,12 +88,12 @@ public sealed class ConversationDto
     public string DisplayTitle(int currentUserId)
     {
         if (IsGroup)
-            return string.IsNullOrWhiteSpace(Title) ? $"Groupe #{Id}" : Title!;
+            return string.IsNullOrWhiteSpace(Title) ? Localization.F("Groupe #{0}", Id) : Title!;
 
         var other = Participants.FirstOrDefault(p => p.UserId != currentUserId);
         return other?.DisplayName is { Length: > 0 }
             ? other.DisplayName
-            : other?.Username ?? $"Conversation #{Id}";
+            : other?.Username ?? Localization.F("Conversation #{0}", Id);
     }
 
     public string ParticipantSummary(int currentUserId)
@@ -105,16 +107,16 @@ public sealed class ConversationDto
                 .ToList();
 
             if (names.Count == 0)
-                return $"{Participants.Count} participants";
+                return Localization.F("{0} participants", Participants.Count);
             var suffix = Participants.Count > 4 ? $" +{Participants.Count - 4}" : string.Empty;
-            return $"{Participants.Count} participants · {string.Join(", ", names)}{suffix}";
+            return Localization.F("{0} participants · {1}", Participants.Count, string.Join(", ", names) + suffix);
         }
 
-        return "Conversation privée";
+        return Localization.T("Conversation privée");
     }
 
     public string PreviewText => string.IsNullOrWhiteSpace(LastMessagePreview)
-        ? "Aucun message pour le moment"
+        ? Localization.T("Aucun message pour le moment")
         : LastMessagePreview!;
 }
 
@@ -139,10 +141,10 @@ public sealed class AttachmentDto
         get
         {
             if (SizeInBytes < 1024)
-                return $"{SizeInBytes} o";
+                return $"{SizeInBytes} {Localization.T("o")}";
             if (SizeInBytes < 1024 * 1024)
-                return $"{SizeInBytes / 1024d:0.#} Ko";
-            return $"{SizeInBytes / (1024d * 1024d):0.#} Mo";
+                return $"{SizeInBytes / 1024d:0.#} {Localization.T("Ko")}";
+            return $"{SizeInBytes / (1024d * 1024d):0.#} {Localization.T("Mo")}";
         }
     }
 }

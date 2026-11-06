@@ -70,7 +70,11 @@ public sealed class CreateUserForm : Form
             Location = new Point(0, 20),
             Width = 240
         };
-        _roleCombo.Items.AddRange(new object[] { "Utilisateur", "Administrateur" });
+        _roleCombo.Items.AddRange(new object[]
+        {
+            Localization.T("Utilisateur"),
+            Localization.T("Administrateur")
+        });
         _roleCombo.SelectedIndex = 0;
         roleHost.Controls.Add(roleLabel);
         roleHost.Controls.Add(_roleCombo);
@@ -99,6 +103,7 @@ public sealed class CreateUserForm : Form
 
         Controls.Add(root);
         CancelButton = _cancelButton;
+        Localization.Apply(this);
         Shown += (_, _) => _usernameBox.Focus();
     }
 
@@ -136,21 +141,23 @@ public sealed class CreateUserForm : Form
 
         if (string.IsNullOrWhiteSpace(username))
         {
-            _errorLabel.Text = "Le nom d'utilisateur est requis.";
+            _errorLabel.Text = Localization.T("Le nom d'utilisateur est requis.");
             _usernameBox.Focus();
             return;
         }
 
         if (string.IsNullOrWhiteSpace(email) || !email.Contains('@') || email.StartsWith('@') || email.EndsWith('@'))
         {
-            _errorLabel.Text = "Indiquez une adresse e-mail valide.";
+            _errorLabel.Text = Localization.T("Indiquez une adresse e-mail valide.");
             _emailBox.Focus();
             return;
         }
 
         if (password.Length < MinimumPasswordLength)
         {
-            _errorLabel.Text = $"Le mot de passe doit contenir au moins {MinimumPasswordLength} caractères.";
+            _errorLabel.Text = Localization.F(
+                "Le mot de passe doit contenir au moins {0} caractères.",
+                MinimumPasswordLength);
             _passwordBox.Focus();
             return;
         }

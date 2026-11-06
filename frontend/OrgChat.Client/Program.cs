@@ -1,6 +1,7 @@
 using OrgChat.Client.App;
 using OrgChat.Client.Configuration;
 using OrgChat.Client.Services;
+using OrgChat.Client.UI;
 
 namespace OrgChat.Client;
 
@@ -19,6 +20,10 @@ internal static class Program
             if (e.ExceptionObject is Exception exception)
                 ShowFatalError(exception);
         };
+
+        var settings = SettingsStore.Load();
+        Localization.SetLanguage(settings.Language);
+        ThemeManager.SetTheme(settings.Theme);
 
         var options = ClientOptions.Load();
         using var api = new ApiClient(options.BaseUrl);

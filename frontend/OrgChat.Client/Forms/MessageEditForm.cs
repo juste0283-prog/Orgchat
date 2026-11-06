@@ -93,6 +93,7 @@ public sealed class MessageEditForm : Form
 
         Controls.Add(root);
         CancelButton = _cancelButton;
+        Localization.Apply(this);
         Shown += (_, _) =>
         {
             _contentBox.Focus();
@@ -110,7 +111,7 @@ public sealed class MessageEditForm : Form
         var content = _contentBox.Text.Trim();
         if (content.Length == 0 && _message.Attachments.Count == 0)
         {
-            _errorLabel.Text = "Le message ne peut pas être vide.";
+            _errorLabel.Text = Localization.T("Le message ne peut pas être vide.");
             _contentBox.Focus();
             return;
         }

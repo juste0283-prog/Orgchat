@@ -7,8 +7,9 @@ Client Windows Forms de messagerie d'entreprise pour l'API OrgChat.
 - **Transport REST** : `HttpClient` + JSON
 - **Projet** : `OrgChat.Client` (assembly `OrgChat.Client`)
 
-L'interface est entièrement construite par code (aucun fichier Designer), avec un thème sombre
-et des composants personnalisés (bulles de message, avatars, cartes de conversation).
+L'interface est entièrement construite par code (aucun fichier Designer), avec un thème
+configurable (Sombre, Clair, Océan, Améthyste) et des composants personnalisés
+(bulles de message, avatars, cartes de conversation).
 
 ---
 
@@ -84,6 +85,28 @@ Les URL sans schéma sont acceptées : `192.168.1.10:5000` devient `http://192.1
 Les barres obliques finales sont supprimées automatiquement.
 
 `PageSize` contrôle le nombre de messages chargés par page (borné entre 1 et 100).
+
+---
+
+## Langue et thème
+
+Le client est disponible en **français** et en **anglais**, avec quatre thèmes visuels :
+
+- **Sombre** (par défaut) — `AppTheme.Dark`
+- **Clair** — `AppTheme.Light`
+- **Océan** — `AppTheme.Ocean`
+- **Améthyste** — `AppTheme.Amethyst`
+
+Les réglages sont accessibles :
+
+- depuis l'écran de connexion, via le lien **Langue et thème** sous le champ serveur ;
+- depuis la fenêtre principale, via le bouton **⚙** de la barre d'en-tête ;
+- depuis le menu de l'icône de notification (tray), via **Paramètres**.
+
+Ils sont persistés dans `%LOCALAPPDATA%\OrgChat\settings.json` (JSON lisible, formats
+`"French"` / `"English"` et `"Dark"` / `"Light"` / `"Ocean"` / `"Amethyst"`) et rechargés
+au démarrage, avant la création des formulaires. Changer la langue ou le thème reconstruit
+l'interface sans perdre l'authentification ni la conversation affichée.
 
 ---
 
@@ -172,10 +195,13 @@ frontend/
     │   ├── ApiClient.cs                 # Tous les appels REST
     │   ├── ApiException.cs              # Erreurs HTTP normalisées
     │   ├── RealtimeChatService.cs       # Hub SignalR, reconnexion, événements
-    │   └── SessionStore.cs              # Session DPAPI
+    │   ├── SessionStore.cs              # Session DPAPI
+    │   ├── SettingsStore.cs             # Préférences langue/thème (settings.json)
+    │   └── Localization.cs              # Traductions FR/EN et application aux contrôles
     ├── Forms/
     │   ├── LoginForm.cs                 # Connexion / inscription / URL serveur
     │   ├── MainForm.cs                  # Conversations, messages, recherche, tray
+    │   ├── SettingsForm.cs              # Langue et thème
     │   ├── NewConversationForm.cs       # Création privée ou groupe
     │   ├── GroupMembersForm.cs          # Participants d'un groupe
     │   ├── MessageEditForm.cs           # Édition d'un message
@@ -186,7 +212,8 @@ frontend/
     │   ├── CreateUserForm.cs            # Création de compte admin
     │   └── UsersForm.cs                 # Annuaire et administration
     └── UI/
-        ├── Palette.cs                   # Couleurs du thème
+        ├── ThemeManager.cs              # Définitions des thèmes et thème actif
+        ├── Palette.cs                   #Façade vers le thème courant
         ├── Ui.cs                        # Fabriques de contrôles et helpers
         ├── RoundedPanel.cs
         ├── RoundedButton.cs
@@ -209,5 +236,4 @@ frontend/
 
 - Application Windows uniquement (Windows Forms).
 - Pas de cache hors ligne : l'historique nécessite une connexion au serveur.
-- Le thème est sombre et n'est pas configurable.
 - Les notifications push hors LAN/VPN ne sont pas prises en charge.

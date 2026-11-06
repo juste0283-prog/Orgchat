@@ -5,22 +5,29 @@ namespace OrgChat.Client.UI;
 /// <summary>Palette et helpers graphiques partagés par tout le client.</summary>
 public static class Palette
 {
-    public static readonly Color Background = ColorTranslator.FromHtml("#0E1116");
-    public static readonly Color Sidebar = ColorTranslator.FromHtml("#12161D");
-    public static readonly Color Surface = ColorTranslator.FromHtml("#171C24");
-    public static readonly Color SurfaceAlt = ColorTranslator.FromHtml("#1E242E");
-    public static readonly Color SurfaceHover = ColorTranslator.FromHtml("#232A36");
-    public static readonly Color Border = ColorTranslator.FromHtml("#2A3341");
-    public static readonly Color Accent = ColorTranslator.FromHtml("#4F8DFD");
-    public static readonly Color AccentHover = ColorTranslator.FromHtml("#6A9FFD");
-    public static readonly Color AccentSoft = ColorTranslator.FromHtml("#243B63");
-    public static readonly Color Text = ColorTranslator.FromHtml("#E9EEF6");
-    public static readonly Color Muted = ColorTranslator.FromHtml("#8C98AA");
-    public static readonly Color Faint = ColorTranslator.FromHtml("#637085");
-    public static readonly Color Success = ColorTranslator.FromHtml("#3DD68C");
-    public static readonly Color Warning = ColorTranslator.FromHtml("#F2B84B");
-    public static readonly Color Danger = ColorTranslator.FromHtml("#EF5B68");
-    public static readonly Color BubbleIn = ColorTranslator.FromHtml("#1C2330");
+    private static ThemeDefinition Current => ThemeManager.Current;
+
+    public static Color Background => Current.Background;
+    public static Color Sidebar => Current.Sidebar;
+    public static Color Surface => Current.Surface;
+    public static Color SurfaceAlt => Current.SurfaceAlt;
+    public static Color SurfaceHover => Current.SurfaceHover;
+    public static Color Border => Current.Border;
+    public static Color Accent => Current.Accent;
+    public static Color AccentHover => Current.AccentHover;
+    public static Color AccentSoft => Current.AccentSoft;
+    public static Color OnAccent => Current.OnAccent;
+    public static Color Text => Current.Text;
+    public static Color Muted => Current.Muted;
+    public static Color Faint => Current.Faint;
+    public static Color Success => Current.Success;
+    public static Color Warning => Current.Warning;
+    public static Color Danger => Current.Danger;
+    public static Color BubbleIn => Current.BubbleIn;
+    public static Color HeroStart => Current.HeroStart;
+    public static Color HeroEnd => Current.HeroEnd;
+    public static Color HeroText => Current.HeroText;
+    public static Color HeroMuted => Current.HeroMuted;
 
     public static readonly Font Body = new("Segoe UI", 9.5f);
     public static readonly Font BodyBold = new("Segoe UI", 9.5f, FontStyle.Bold);

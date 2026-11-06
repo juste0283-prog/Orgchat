@@ -1,4 +1,5 @@
 using OrgChat.Client.Models;
+using OrgChat.Client.Services;
 
 namespace OrgChat.Client.UI;
 
@@ -30,12 +31,12 @@ public sealed class MessageBubble : Control
         BackColor = Palette.Background;
 
         var menu = new ContextMenuStrip();
-        menu.Items.Add("Copier le message", null, (_, _) => CopyToClipboard());
+        menu.Items.Add(Localization.T("Copier le message"), null, (_, _) => CopyToClipboard());
         if (IsOwn && !Message.IsDeleted)
         {
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Modifier", null, (_, _) => EditRequested?.Invoke(Message));
-            menu.Items.Add("Supprimer", null, (_, _) => DeleteRequested?.Invoke(Message));
+            menu.Items.Add(Localization.T("Modifier"), null, (_, _) => EditRequested?.Invoke(Message));
+            menu.Items.Add(Localization.T("Supprimer"), null, (_, _) => DeleteRequested?.Invoke(Message));
         }
         ContextMenuStrip = menu;
     }
@@ -159,7 +160,7 @@ public sealed class MessageBubble : Control
         var contentSize = MeasureContent();
         var timeText = Ui.FormatMessageTime(Message.CreatedAt);
         if (Message.EditedAt is not null)
-            timeText += " · modifié";
+            timeText += Localization.T(" · modifié");
         if (!string.IsNullOrWhiteSpace(ReceiptText))
             timeText += " · " + ReceiptText;
 
@@ -180,7 +181,7 @@ public sealed class MessageBubble : Control
 
         var fill = IsOwn ? Palette.Accent : Palette.BubbleIn;
         var border = IsOwn ? Color.Transparent : Palette.Border;
-        var textColor = IsOwn ? Color.White : Palette.Text;
+        var textColor = IsOwn ? Palette.OnAccent : Palette.Text;
 
         Palette.DrawRounded(g, bubbleRect, 14, fill, border == Color.Transparent ? null : border);
 
@@ -191,7 +192,7 @@ public sealed class MessageBubble : Control
         {
             TextRenderer.DrawText(g, Message.SenderUsername, Palette.SmallBold,
                 new Rectangle((int)x, 10, (int)textWidth, 16),
-                IsOwn ? Color.FromArgb(210, 255, 255, 255) : Palette.Accent,
+                IsOwn ? Palette.WithAlpha(Palette.OnAccent, 210) : Palette.Accent,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
         }
 
@@ -215,7 +216,7 @@ public sealed class MessageBubble : Control
 
         TextRenderer.DrawText(g, timeText, Palette.Small,
             new Rectangle((int)x, Height - TimeHeight - 7, (int)textWidth, 14),
-            IsOwn ? Color.FromArgb(195, 255, 255, 255) : Palette.Faint,
+            IsOwn ? Palette.WithAlpha(Palette.OnAccent, 195) : Palette.Faint,
             TextFormatFlags.Right | TextFormatFlags.VerticalCenter);
     }
 
@@ -223,7 +224,7 @@ public sealed class MessageBubble : Control
     {
         var hovered = ReferenceEquals(_hoveredAttachment, attachment);
         var rowFill = IsOwn
-            ? Color.FromArgb(hovered ? 70 : 42, 255, 255, 255)
+            ? Palette.WithAlpha(Palette.OnAccent, hovered ? 70 : 42)
             : hovered ? Palette.SurfaceHover : Palette.SurfaceAlt;
         var rowBorder = IsOwn ? Color.Transparent : Palette.Border;
 
@@ -232,13 +233,13 @@ public sealed class MessageBubble : Control
 
         var iconRect = new Rectangle(row.X + 8, row.Y + 7, 28, 28);
         TextRenderer.DrawText(g, "📎", AttachmentIconFont,
-            iconRect, IsOwn ? Color.White : Palette.Accent,
+            iconRect, IsOwn ? Palette.OnAccent : Palette.Accent,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
 
         var detailsX = row.X + 42;
         var detailsWidth = Math.Max(20, row.Width - 50);
-        var nameColor = IsOwn ? Color.White : textColor;
-        var sizeColor = IsOwn ? Color.FromArgb(205, 255, 255, 255) : Palette.Faint;
+        var nameColor = IsOwn ? Palette.OnAccent : textColor;
+        var sizeColor = IsOwn ? Palette.WithAlpha(Palette.OnAccent, 205) : Palette.Faint;
 
         TextRenderer.DrawText(g, attachment.OriginalFileName, Palette.SmallBold,
             new Rectangle(detailsX, row.Y + 5, detailsWidth, 17), nameColor,

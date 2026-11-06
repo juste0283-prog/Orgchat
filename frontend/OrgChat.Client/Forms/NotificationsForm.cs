@@ -100,6 +100,7 @@ public sealed class NotificationsForm : Form
 
         Controls.Add(root);
         CancelButton = closeButton;
+        Localization.Apply(this);
 
         Shown += async (_, _) => await LoadAsync();
     }
@@ -125,7 +126,7 @@ public sealed class NotificationsForm : Form
         catch (Exception ex)
         {
             _errorLabel.Text = Ui.FriendlyError(ex);
-            _subtitle.Text = "Impossible de charger les notifications.";
+            _subtitle.Text = Localization.T("Impossible de charger les notifications.");
         }
         finally
         {
@@ -174,15 +175,17 @@ public sealed class NotificationsForm : Form
 
         if (_notifications.Count == 0)
         {
-            var empty = Ui.Label("Aucune notification pour le moment.", Palette.Small, Palette.Faint);
+            var empty = Ui.Label(Localization.T("Aucune notification pour le moment."), Palette.Small, Palette.Faint);
             empty.Margin = new Padding(4, 16, 0, 0);
             _listPanel.Controls.Add(empty);
         }
 
         var unread = _notifications.Count(n => !n.IsRead);
         _subtitle.Text = unread > 0
-            ? $"{_notifications.Count} notification(s) affichée(s) · {unread} non lue(s)"
-            : $"{_notifications.Count} notification(s) affichée(s) · tout est lu";
+            ? Localization.F("{0} notification(s) affichée(s) · {1} non lue(s)",
+                _notifications.Count, unread)
+            : Localization.F("{0} notification(s) affichée(s) · tout est lu",
+                _notifications.Count);
         _markAllButton.Enabled = unread > 0;
         _clearButton.Enabled = _notifications.Count > 0;
         _loadMoreButton.Visible = _hasMore;
@@ -236,7 +239,7 @@ public sealed class NotificationsForm : Form
             ? notification.SenderName
             : notification.ConversationTitle;
         if (string.IsNullOrWhiteSpace(titleText))
-            titleText = "Nouveau message";
+            titleText = Localization.T("Nouveau message");
 
         var title = Ui.Label(titleText, Palette.BodyBold,
             unread ? Palette.Text : Palette.Muted, autoSize: false);
@@ -250,7 +253,7 @@ public sealed class NotificationsForm : Form
             ? string.Empty
             : notification.SenderName + " · ";
         var preview = string.IsNullOrWhiteSpace(notification.Preview)
-            ? "Nouveau message"
+            ? Localization.T("Nouveau message")
             : notification.Preview;
         var detail = Ui.Label(sender + preview, Palette.Small,
             unread ? Palette.Muted : Palette.Faint, autoSize: false);
@@ -391,8 +394,8 @@ public sealed class NotificationsForm : Form
             return;
 
         var confirm = MessageBox.Show(this,
-            "Supprimer toutes vos notifications ? Cette action est définitive.",
-            "Tout supprimer",
+            Localization.T("Supprimer toutes vos notifications ? Cette action est définitive."),
+            Localization.T("Tout supprimer"),
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Warning);
 

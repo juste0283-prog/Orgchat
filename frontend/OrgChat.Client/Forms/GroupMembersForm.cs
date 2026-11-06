@@ -137,6 +137,7 @@ public sealed class GroupMembersForm : Form
 
         Controls.Add(root);
         CancelButton = closeButton;
+        Localization.Apply(this);
 
         Shown += async (_, _) => await ReloadAsync();
         BuildRows();
@@ -186,14 +187,15 @@ public sealed class GroupMembersForm : Form
 
         if (participants.Count == 0)
         {
-            var empty = Ui.Label("Aucun participant.", Palette.Small, Palette.Faint);
+            var empty = Ui.Label(Localization.T("Aucun participant."), Palette.Small, Palette.Faint);
             empty.Margin = new Padding(4, 12, 0, 0);
             _listPanel.Controls.Add(empty);
         }
 
         _subtitle.Text = _conversation.IsGroup
-            ? $"{participants.Count} membres · {_conversation.ParticipantSummary(_currentUserId)}"
-            : "Conversation privée entre deux participants";
+            ? Localization.F("{0} membres · {1}", participants.Count,
+                _conversation.ParticipantSummary(_currentUserId))
+            : Localization.T("Conversation privée entre deux participants");
 
         _listPanel.ResumeLayout();
         ResizeRows();
@@ -233,14 +235,14 @@ public sealed class GroupMembersForm : Form
 
         if (participant.UserId == _currentUserId)
         {
-            var me = Ui.Pill("vous", Palette.Accent);
+            var me = Ui.Pill(Localization.T("vous"), Palette.Accent);
             me.Location = new Point(64 + handle.PreferredWidth + 10, 31);
             row.Controls.Add(me);
         }
 
         if (participant.IsGroupAdmin)
         {
-            var badge = Ui.Pill("admin", Palette.Warning);
+            var badge = Ui.Pill(Localization.T("admin"), Palette.Warning);
             badge.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             badge.Location = new Point(row.Width - badge.PreferredWidth - 16, 12);
             row.Controls.Add(badge);
@@ -252,7 +254,7 @@ public sealed class GroupMembersForm : Form
 
         if (canRemove)
         {
-            var remove = Ui.Ghost("Retirer", 70, 30);
+            var remove = Ui.Ghost(Localization.T("Retirer"), 70, 30);
             remove.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             remove.Location = new Point(row.Width - 86, 16);
             remove.Click += async (_, _) => await RemoveParticipantAsync(participant);
@@ -339,8 +341,8 @@ public sealed class GroupMembersForm : Form
 
         var name = string.IsNullOrWhiteSpace(participant.DisplayName) ? participant.Username : participant.DisplayName;
         var confirm = MessageBox.Show(this,
-            $"Retirer {name} de cette conversation ?",
-            "Confirmer",
+            Localization.F("Retirer {0} de cette conversation ?", name),
+            Localization.T("Confirmer"),
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Question);
 

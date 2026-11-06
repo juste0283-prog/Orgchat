@@ -88,8 +88,9 @@ public static class Ui
         Width = width,
         Height = height,
         NormalColor = Palette.Danger,
-        HoverColor = ColorTranslator.FromHtml("#FF7581"),
+        HoverColor = Palette.Blend(Palette.Danger, Color.White, 0.15f),
         PressedColor = Palette.Danger,
+        ForeColor = Color.White,
         CornerRadius = 9
     };
 
@@ -142,9 +143,9 @@ public static class Ui
 
     public static string FriendlyError(Exception exception) => exception switch
     {
-        ApiException api => api.Message,
-        OperationCanceledException => "Opération annulée.",
-        _ => exception.Message
+        ApiException api => Localization.T(api.Message),
+        OperationCanceledException => Localization.T("Opération annulée."),
+        _ => Localization.T(exception.Message)
     };
 
     public static string FormatConversationTime(DateTime? value)
@@ -159,7 +160,7 @@ public static class Ui
         if (local.Date == DateTime.Today)
             return local.ToString("HH:mm");
         if (local.Date == DateTime.Today.AddDays(-1))
-            return "Hier";
+            return Localization.T("Hier");
         if (local.Year == DateTime.Today.Year)
             return local.ToString("dd/MM");
         return local.ToString("dd/MM/yy");

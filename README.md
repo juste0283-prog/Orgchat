@@ -41,6 +41,8 @@ Application de messagerie instantanée pour organisation, conçue pour un déplo
 - Centre de notifications avec pagination, suppression et purge
 - Menus contextuels messages/conversations
 - Écrans d'administration et de profil
+- Interface multilingue **français / anglais**
+- Thèmes visuels sélectionnables (Sombre, Clair, Océan, Améthyste)
 
 ## Structure
 

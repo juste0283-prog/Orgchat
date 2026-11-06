@@ -113,6 +113,7 @@ public sealed class MessageSearchForm : Form
 
         Controls.Add(root);
         CancelButton = _closeButton;
+        Localization.Apply(this);
         Shown += async (_, _) =>
         {
             if (initialQuery.Trim().Length >= 2)
@@ -132,14 +133,14 @@ public sealed class MessageSearchForm : Form
         var query = _queryBox.Text.Trim();
         if (query.Length < 2)
         {
-            _statusLabel.Text = "Saisissez au moins 2 caractères.";
+            _statusLabel.Text = Localization.T("Saisissez au moins 2 caractères.");
             _resultsBox.Items.Clear();
             return;
         }
 
         _busy = true;
         _searchButton.Enabled = false;
-        _statusLabel.Text = "Recherche…";
+        _statusLabel.Text = Localization.T("Recherche…");
         UseWaitCursor = true;
 
         try
@@ -152,8 +153,8 @@ public sealed class MessageSearchForm : Form
             _resultsBox.EndUpdate();
 
             _statusLabel.Text = results.Count == 0
-                ? "Aucun message trouvé."
-                : $"{results.Count} résultat{(results.Count > 1 ? "s" : string.Empty)} — double-cliquez pour ouvrir.";
+                ? Localization.T("Aucun message trouvé.")
+                : Localization.F("{0} résultat(s) — double-cliquez pour ouvrir.", results.Count);
         }
         catch (Exception ex)
         {
@@ -231,7 +232,7 @@ public sealed class MessageSearchForm : Form
             result.Content.Replace('\r', ' ').Replace('\n', ' '),
             Palette.Body,
             new Rectangle(contentBounds.X, contentBounds.Y + 22, contentBounds.Width, 20),
-            selected ? Color.White : Palette.Text,
+            Palette.Text,
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
 
         using var pen = new Pen(Palette.Border);

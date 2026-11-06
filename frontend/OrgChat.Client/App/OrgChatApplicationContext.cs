@@ -12,6 +12,8 @@ public sealed class OrgChatApplicationContext : ApplicationContext
     private readonly ClientOptions _options;
     private LoginForm? _login;
     private MainForm? _main;
+    private AuthResponse? _auth;
+    private int? _pendingConversationId;
 
     public OrgChatApplicationContext(ApiClient api, ClientOptions options)
     {
@@ -59,11 +61,11 @@ public sealed class OrgChatApplicationContext : ApplicationContext
 
     private void ShowLogin()
     {
-        var login = new LoginForm(_api, _options, OnAuthenticated);
+        var login = new LoginForm(_api, _options, OnAuthenticated, RebuildUi);
         _login = login;
         login.FormClosed += (_, _) =>
         {
-            if (_main is null)
+            if (ReferenceEquals(_login, login) && _main is null)
                 ExitThread();
         };
         login.Show();
@@ -71,25 +73,37 @@ public sealed class OrgChatApplicationContext : ApplicationContext
 
     private void OnAuthenticated(AuthResponse auth)
     {
+        _auth = auth;
         _login?.Hide();
+        CreateMain(auth);
+    }
 
-        var main = new MainForm(_api, _options, auth);
+    private void CreateMain(AuthResponse auth)
+    {
+        var main = new MainForm(_api, _options, auth, _pendingConversationId);
+        _pendingConversationId = null;
         _main = main;
+
+        main.SettingsChanged += (_, _) => RebuildUi();
 
         main.LogoutRequested += (_, _) =>
         {
+            var oldMain = _main;
             _main = null;
-            main.CloseForLogout();
+            oldMain?.CloseForLogout();
+            _auth = null;
             _api.SetToken(null);
             SessionStore.Clear();
-            _login?.ResetForLogout();
-            _login?.Show();
-            _login?.Activate();
+
+            var oldLogin = _login;
+            _login = null;
+            oldLogin?.Dispose();
+            ShowLogin();
         };
 
         main.FormClosed += (_, _) =>
         {
-            if (_main == main)
+            if (ReferenceEquals(_main, main))
             {
                 _main = null;
                 ExitThread();
@@ -98,5 +112,30 @@ public sealed class OrgChatApplicationContext : ApplicationContext
 
         main.Show();
         main.Activate();
+    }
+
+    /// <summary>Reconstruit l'interface après un changement de langue ou de thème.</summary>
+    private void RebuildUi()
+    {
+        if (_main is not null)
+        {
+            var main = _main;
+            _pendingConversationId = main.CurrentConversationId;
+            _main = null;
+            main.CloseForRebuild();
+
+            if (_auth is not null)
+                CreateMain(_auth);
+            return;
+        }
+
+        if (_login is null)
+            return;
+
+        var oldLogin = _login;
+        _login = null;
+        oldLogin.Hide();
+        oldLogin.Dispose();
+        ShowLogin();
     }
 }

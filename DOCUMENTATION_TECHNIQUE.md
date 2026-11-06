@@ -697,6 +697,9 @@ dotnet run
 - **Notifications** : centre de notifications avec pagination, suppression unitaire, « Tout supprimer », marquage lu et navigation vers la conversation.
 - **Administration** : `UsersForm` permet de créer un compte, changer un rôle, réinitialiser un mot de passe, activer/désactiver et supprimer/anonymiser un compte.
 - **Profil** : modification du profil et changement du mot de passe personnel.
+- **Multilinguisme** : le client est disponible en **français** et en **anglais**. Les libellés statiques sont traduits par `Localization.Apply(Control)` (parcours de l'arbre de contrôles, `PlaceholderText`, menus contextuels et `LinkLabel` recalculés) ; les chaînes dynamiques passent par `Localization.T(...)` / `Localization.F(...)`. Le changement de langue reconstruit l'interface sans perdre l'authentification.
+- **Thèmes** : `ThemeManager` définit quatre palettes (`Sombre`, `Clair`, `Océan`, `Améthyste`) ; `Palette` agit comme une façade vers le thème courant. Les couleurs `Hero*`, `OnAccent` garantissent la lisibilité sur les thèmes clairs ou à accent clair. Le changement de thème reconstruit également l'interface.
+- **Préférences** : langue et thème sont persistés dans `%LOCALAPPDATA%\OrgChat\settings.json` (`SettingsStore`), chargés dans `Program.cs` avant la création des formulaires. Le dialogue `SettingsForm` est accessible depuis l'écran de connexion, l'en-tête de la fenêtre principale et le menu tray.
 
 ---
 

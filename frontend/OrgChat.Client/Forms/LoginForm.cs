@@ -12,6 +12,7 @@ public sealed class LoginForm : Form
     private readonly ApiClient _api;
     private readonly ClientOptions _options;
     private readonly Action<AuthResponse> _onAuthenticated;
+    private readonly Action? _settingsChanged;
 
     private readonly RoundedPanel _card;
     private readonly Panel _rightPanel;
@@ -31,15 +32,17 @@ public sealed class LoginForm : Form
     private TextBox? _confirmBox;
     private TextBox? _serverBox;
 
-    public LoginForm(ApiClient api, ClientOptions options, Action<AuthResponse> onAuthenticated)
+    public LoginForm(ApiClient api, ClientOptions options, Action<AuthResponse> onAuthenticated,
+        Action? settingsChanged = null)
     {
         _api = api;
         _options = options;
         _onAuthenticated = onAuthenticated;
+        _settingsChanged = settingsChanged;
         _serverUrl = api.BaseUrl;
 
         Text = "OrgChat · Connexion";
-        ClientSize = new Size(1020, 650);
+        ClientSize = new Size(1020, 700);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
@@ -85,6 +88,7 @@ public sealed class LoginForm : Form
 
         BuildCard();
         CenterCard();
+        Localization.Apply(this);
 
         Shown += (_, _) => _usernameBox?.Focus();
     }
@@ -100,7 +104,7 @@ public sealed class LoginForm : Form
         var mark = new BrandMark { Location = new Point(54, 54) };
         hero.Controls.Add(mark);
 
-        var brand = Ui.Label("OrgChat", Palette.Hero, Palette.Text, autoSize: false);
+        var brand = Ui.Label("OrgChat", Palette.Hero, Palette.HeroText, autoSize: false);
         brand.Location = new Point(52, 128);
         brand.Size = new Size(380, 52);
         hero.Controls.Add(brand);
@@ -108,7 +112,7 @@ public sealed class LoginForm : Form
         var tagline = Ui.Label(
             "La messagerie interne de votre organisation, sur le réseau local ou via VPN.",
             new Font("Segoe UI", 11.5f),
-            Palette.Muted,
+            Palette.HeroMuted,
             autoSize: false);
         tagline.Location = new Point(54, 184);
         tagline.Size = new Size(360, 64);
@@ -128,14 +132,14 @@ public sealed class LoginForm : Form
             marker.Location = new Point(54, y);
             hero.Controls.Add(marker);
 
-            var label = Ui.Label(text, Palette.Body, Palette.Text);
+            var label = Ui.Label(text, Palette.Body, Palette.HeroText);
             label.Location = new Point(76, y);
             hero.Controls.Add(label);
 
             y += 34;
         }
 
-        var version = Ui.Label("OrgChat v1.0 · LAN / VPN", Palette.Small, Palette.Faint);
+        var version = Ui.Label("OrgChat v1.0 · LAN / VPN", Palette.Small, Palette.HeroMuted);
         version.Location = new Point(54, 588);
         hero.Controls.Add(version);
 
@@ -254,8 +258,27 @@ public sealed class LoginForm : Form
         _card.Controls.Add(serverField);
         y += 52;
 
+        var settingsLink = new LinkLabel
+        {
+            Text = "Langue et thème",
+            Font = Palette.Small,
+            LinkColor = Palette.Accent,
+            ActiveLinkColor = Palette.AccentHover,
+            VisitedLinkColor = Palette.Accent,
+            LinkBehavior = LinkBehavior.HoverUnderline,
+            BackColor = Color.Transparent,
+            Location = new Point(left, y),
+            Size = new Size(width, 22),
+            TabStop = true
+        };
+        settingsLink.LinkArea = new LinkArea(0, settingsLink.Text.Length);
+        settingsLink.LinkClicked += OnSettingsClicked;
+        _card.Controls.Add(settingsLink);
+        y += 26;
+
         _card.Height = y + 18;
         _card.ResumeLayout();
+        Localization.Apply(_card);
         CenterCard();
     }
 
@@ -286,6 +309,17 @@ public sealed class LoginForm : Form
         _usernameBox?.Focus();
     }
 
+    private void OnSettingsClicked(object? sender, LinkLabelLinkClickedEventArgs e)
+    {
+        using (var dialog = new SettingsForm())
+        {
+            if (dialog.ShowDialog(this) != DialogResult.OK)
+                return;
+        }
+
+        _settingsChanged?.Invoke();
+    }
+
     private async void OnSubmitClicked(object? sender, EventArgs e)
     {
         if (_busy)
@@ -294,7 +328,7 @@ public sealed class LoginForm : Form
         var server = _serverBox?.Text.Trim() ?? _serverUrl;
         if (string.IsNullOrWhiteSpace(server))
         {
-            ShowError("Indiquez l'adresse du serveur OrgChat.");
+            ShowError(Localization.T("Indiquez l'adresse du serveur OrgChat."));
             return;
         }
 
@@ -303,14 +337,14 @@ public sealed class LoginForm : Form
 
         if (string.IsNullOrWhiteSpace(username))
         {
-            ShowError("Le nom d'utilisateur est requis.");
+            ShowError(Localization.T("Le nom d'utilisateur est requis."));
             _usernameBox?.Focus();
             return;
         }
 
         if (string.IsNullOrEmpty(password))
         {
-            ShowError("Le mot de passe est requis.");
+            ShowError(Localization.T("Le mot de passe est requis."));
             _passwordBox?.Focus();
             return;
         }
@@ -323,21 +357,21 @@ public sealed class LoginForm : Form
 
             if (!email.Contains('@') || email.StartsWith('@') || email.EndsWith('@'))
             {
-                ShowError("Saisissez une adresse e-mail valide.");
+                ShowError(Localization.T("Saisissez une adresse e-mail valide."));
                 _emailBox?.Focus();
                 return;
             }
 
             if (password.Length < 6)
             {
-                ShowError("Le mot de passe doit contenir au moins 6 caractères.");
+                ShowError(Localization.T("Le mot de passe doit contenir au moins 6 caractères."));
                 _passwordBox?.Focus();
                 return;
             }
 
             if (!string.Equals(password, confirm, StringComparison.Ordinal))
             {
-                ShowError("Les deux mots de passe ne correspondent pas.");
+                ShowError(Localization.T("Les deux mots de passe ne correspondent pas."));
                 _confirmBox?.Focus();
                 return;
             }
@@ -406,9 +440,9 @@ public sealed class LoginForm : Form
         if (_submitButton is not null)
         {
             _submitButton.Enabled = !busy;
-            _submitButton.Text = busy
+            _submitButton.Text = Localization.T(busy
                 ? (_registerMode ? "Création du compte…" : "Connexion…")
-                : (_registerMode ? "Créer mon compte" : "Se connecter");
+                : (_registerMode ? "Créer mon compte" : "Se connecter"));
         }
 
         if (_switchLink is not null)
@@ -456,8 +490,8 @@ public sealed class LoginForm : Form
             var rect = ClientRectangle;
 
             using (var gradient = new LinearGradientBrush(rect,
-                       ColorTranslator.FromHtml("#101B2E"),
-                       ColorTranslator.FromHtml("#0B0F15"), 55f))
+                       Palette.HeroStart,
+                       Palette.HeroEnd, 55f))
             {
                 g.FillRectangle(gradient, rect);
             }
@@ -470,7 +504,7 @@ public sealed class LoginForm : Form
                 g.DrawEllipse(pen, Width - 120, 120, 280, 280);
             }
 
-            using var dot = new SolidBrush(Color.FromArgb(18, Color.White));
+            using var dot = new SolidBrush(Palette.WithAlpha(Palette.HeroText, 18));
             for (var x = 30; x < Width; x += 34)
             {
                 for (var y = 30; y < Height; y += 34)
