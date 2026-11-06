@@ -11,6 +11,7 @@ public sealed record AttachmentDownload(Attachment Attachment, string FullPath);
 public class AttachmentService
 {
     public const long MaxFileSizeBytes = 20 * 1024 * 1024;
+    public const long MaxConversationStorageBytes = 500 * 1024 * 1024;
 
     private static readonly HashSet<string> BlockedExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -40,6 +41,18 @@ public class AttachmentService
 
         if (file.Length > MaxFileSizeBytes)
             throw new InvalidOperationException("La pièce jointe dépasse la taille maximale de 20 Mo.");
+
+        var isParticipant = await _db.ConversationParticipants
+            .AnyAsync(p => p.ConversationId == conversationId && p.UserId == senderId);
+        if (!isParticipant)
+            throw new InvalidOperationException("Vous ne faites pas partie de cette conversation.");
+
+        var usedBytes = await _db.Attachments
+            .Where(a => a.Message.ConversationId == conversationId && !a.Message.IsDeleted)
+            .SumAsync(a => (long?)a.SizeInBytes) ?? 0;
+
+        if (usedBytes + file.Length > MaxConversationStorageBytes)
+            throw new InvalidOperationException("Le quota de pièces jointes de cette conversation est atteint.");
 
         var originalFileName = Path.GetFileName(file.FileName).Trim();
         if (originalFileName.Length == 0)
@@ -110,7 +123,7 @@ public class AttachmentService
             .Include(a => a.Message)
             .FirstOrDefaultAsync(a => a.Id == attachmentId);
 
-        if (attachment is null)
+        if (attachment is null || attachment.Message.IsDeleted)
             return null;
 
         var canDownload = await _db.ConversationParticipants

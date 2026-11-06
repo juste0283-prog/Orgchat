@@ -6,6 +6,7 @@ using OrgChat.Infrastructure.Data;
 using OrgChat.Infrastructure.Services;
 using OrgChat.Server.Hubs;
 using OrgChat.Server.Services;
+using System.Security.Claims;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -46,6 +47,9 @@ builder.Services.AddScoped<ConversationService>();
 builder.Services.AddScoped<MessageService>();
 builder.Services.AddScoped<AttachmentService>();
 
+if (!builder.Environment.IsEnvironment("Test"))
+    builder.Services.AddHostedService<MaintenanceService>();
+
 var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
@@ -63,6 +67,33 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseAuthentication();
+
+// Un jeton JWT reste valide jusqu'à son expiration : on vérifie donc à chaque
+// requête que le compte existe toujours et n'a pas été désactivé/supprimé.
+app.Use(async (context, next) =>
+{
+    if (context.User.Identity?.IsAuthenticated == true)
+    {
+        var userIdClaim = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (int.TryParse(userIdClaim, out var userId))
+        {
+            var db = context.RequestServices.GetRequiredService<AppDbContext>();
+            var isActive = await db.Users
+                .AsNoTracking()
+                .AnyAsync(u => u.Id == userId && u.IsActive);
+
+            if (!isActive)
+            {
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                await context.Response.WriteAsJsonAsync(new { error = "Compte désactivé ou supprimé." });
+                return;
+            }
+        }
+    }
+
+    await next();
+});
+
 app.UseAuthorization();
 
 app.MapControllers();

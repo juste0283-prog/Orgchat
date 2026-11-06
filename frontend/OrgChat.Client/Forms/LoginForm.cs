@@ -397,6 +397,7 @@ public sealed class LoginForm : Form
     {
         _api.SetToken(auth.Token);
         _options.BaseUrl = _api.BaseUrl;
+        _ = SessionStore.SaveAsync(_api.BaseUrl, auth);
         _onAuthenticated(auth);
     }
 

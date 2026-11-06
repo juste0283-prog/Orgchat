@@ -65,6 +65,60 @@ public class MessagesController : ControllerBase
         }
     }
 
+    [HttpPut("{messageId:int}")]
+    public async Task<IActionResult> UpdateMessage(
+        int conversationId,
+        int messageId,
+        [FromBody] MessageUpdateRequest request)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(ModelState);
+
+        try
+        {
+            var message = await _messageService.UpdateMessageAsync(
+                conversationId, messageId, GetCurrentUserId(), request.Content);
+
+            if (message is null)
+                return NotFound(new { error = "Message introuvable." });
+
+            await _hub.Clients.Group(conversationId.ToString())
+                .SendAsync("MessageUpdated", message);
+
+            return Ok(message);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    [HttpDelete("{messageId:int}")]
+    public async Task<IActionResult> DeleteMessage(int conversationId, int messageId)
+    {
+        try
+        {
+            var deleted = await _messageService.DeleteMessageAsync(
+                conversationId, messageId, GetCurrentUserId());
+
+            if (deleted is null)
+                return NotFound(new { error = "Message introuvable." });
+
+            await _hub.Clients.Group(conversationId.ToString())
+                .SendAsync("MessageDeleted", deleted);
+
+            return Ok(deleted);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+    }
+
     [HttpPost("attachments")]
     [RequestSizeLimit(22 * 1024 * 1024)]
     public async Task<IActionResult> SendAttachment(

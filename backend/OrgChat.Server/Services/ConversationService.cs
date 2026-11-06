@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using OrgChat.Core.Contracts.Conversations;
 using OrgChat.Core.Contracts.Messages;
@@ -7,15 +8,22 @@ using OrgChat.Infrastructure.Data;
 
 namespace OrgChat.Server.Services;
 
+public sealed record ConversationLeaveResult(bool Deleted);
+
 public class ConversationService
 {
     private readonly AppDbContext _db;
     private readonly NotificationService _notifications;
+    private readonly IWebHostEnvironment _environment;
 
-    public ConversationService(AppDbContext db, NotificationService notifications)
+    public ConversationService(
+        AppDbContext db,
+        NotificationService notifications,
+        IWebHostEnvironment environment)
     {
         _db = db;
         _notifications = notifications;
+        _environment = environment;
     }
 
     public async Task<ICollection<ConversationDto>> GetConversationsForUserAsync(int userId)
@@ -162,6 +170,114 @@ public class ConversationService
         _db.ConversationParticipants.Remove(participant);
         await _db.SaveChangesAsync();
         return true;
+    }
+
+    public Task<List<int>> GetParticipantUserIdsAsync(int conversationId) =>
+        _db.ConversationParticipants
+            .Where(p => p.ConversationId == conversationId)
+            .Select(p => p.UserId)
+            .ToListAsync();
+
+    public async Task<ConversationLeaveResult> LeaveConversationAsync(int conversationId, int userId)
+    {
+        var conversation = await _db.Conversations
+            .Include(c => c.Participants)
+            .FirstOrDefaultAsync(c => c.Id == conversationId);
+
+        if (conversation is null)
+            return new ConversationLeaveResult(false);
+
+        if (conversation.Type != ConversationType.Group)
+            throw new InvalidOperationException("Utilisez la suppression pour une conversation privée.");
+
+        var participant = conversation.Participants.FirstOrDefault(p => p.UserId == userId);
+        if (participant is null)
+            return new ConversationLeaveResult(false);
+
+        var remaining = conversation.Participants
+            .Where(p => p.UserId != userId)
+            .ToList();
+
+        // Un groupe qui ne contient plus qu'une personne n'a plus de raison d'exister.
+        if (remaining.Count <= 1)
+        {
+            await DeleteConversationCoreAsync(conversation);
+            return new ConversationLeaveResult(true);
+        }
+
+        if (participant.IsGroupAdmin && remaining.All(p => !p.IsGroupAdmin))
+            remaining[0].IsGroupAdmin = true;
+
+        _db.ConversationParticipants.Remove(participant);
+        await _db.SaveChangesAsync();
+        await _notifications.DeleteForUserConversationAsync(userId, conversationId);
+
+        return new ConversationLeaveResult(false);
+    }
+
+    public async Task<bool> DeleteConversationAsync(int conversationId, int userId)
+    {
+        var conversation = await _db.Conversations
+            .Include(c => c.Participants)
+            .FirstOrDefaultAsync(c => c.Id == conversationId);
+
+        if (conversation is null)
+            return false;
+
+        var participant = conversation.Participants.FirstOrDefault(p => p.UserId == userId);
+        if (participant is null)
+            return false;
+
+        if (conversation.Type == ConversationType.Group &&
+            !participant.IsGroupAdmin &&
+            conversation.CreatedById != userId)
+        {
+            throw new UnauthorizedAccessException(
+                "Seul un administrateur du groupe peut supprimer cette conversation.");
+        }
+
+        await DeleteConversationCoreAsync(conversation);
+        return true;
+    }
+
+    private async Task DeleteConversationCoreAsync(Conversation conversation)
+    {
+        var storagePaths = await _db.Attachments
+            .Where(a => a.Message.ConversationId == conversation.Id)
+            .Select(a => a.StoragePath)
+            .ToListAsync();
+
+        await _notifications.DeleteForConversationAsync(conversation.Id);
+
+        _db.Conversations.Remove(conversation);
+        await _db.SaveChangesAsync();
+
+        foreach (var storagePath in storagePaths)
+            TryDeleteUpload(storagePath);
+    }
+
+    private void TryDeleteUpload(string storagePath)
+    {
+        if (string.IsNullOrWhiteSpace(storagePath))
+            return;
+
+        try
+        {
+            var uploadsRoot = Path.GetFullPath(Path.Combine(_environment.ContentRootPath, "uploads"));
+            var fullPath = Path.GetFullPath(Path.Combine(
+                _environment.ContentRootPath,
+                storagePath.Replace('/', Path.DirectorySeparatorChar)));
+
+            if (!fullPath.StartsWith(uploadsRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            if (File.Exists(fullPath))
+                File.Delete(fullPath);
+        }
+        catch
+        {
+            // Le nettoyage des fichiers est best-effort : la conversation est déjà supprimée.
+        }
     }
 
     public Task<bool> IsParticipantAsync(int conversationId, int userId) =>

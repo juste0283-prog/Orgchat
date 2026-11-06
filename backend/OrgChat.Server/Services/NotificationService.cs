@@ -95,19 +95,76 @@ public class NotificationService
         return dtos;
     }
 
-    public async Task<ICollection<NotificationDto>> GetForUserAsync(int userId, int take = 100)
+    public async Task<ICollection<NotificationDto>> GetForUserAsync(int userId, int take = 100, int skip = 0)
     {
         take = Math.Clamp(take, 1, 200);
+        skip = Math.Max(0, skip);
 
         var notifications = await _db.Notifications
             .AsNoTracking()
             .Where(n => n.UserId == userId)
             .OrderByDescending(n => n.CreatedAt)
             .ThenByDescending(n => n.Id)
+            .Skip(skip)
             .Take(take)
             .ToListAsync();
 
         return notifications.Select(ToDto).ToList();
+    }
+
+    public async Task<bool> DeleteAsync(int notificationId, int userId)
+    {
+        var notification = await _db.Notifications
+            .FirstOrDefaultAsync(n => n.Id == notificationId && n.UserId == userId);
+
+        if (notification is null)
+            return false;
+
+        _db.Notifications.Remove(notification);
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
+    public async Task<int> ClearAsync(int userId)
+    {
+        var notifications = await _db.Notifications
+            .Where(n => n.UserId == userId)
+            .ToListAsync();
+
+        if (notifications.Count == 0)
+            return 0;
+
+        _db.Notifications.RemoveRange(notifications);
+        await _db.SaveChangesAsync();
+        return notifications.Count;
+    }
+
+    public async Task<int> PurgeReadBeforeAsync(int userId, DateTime cutoff)
+    {
+        var notifications = await _db.Notifications
+            .Where(n => n.UserId == userId && n.ReadAt != null && n.CreatedAt < cutoff)
+            .ToListAsync();
+
+        if (notifications.Count == 0)
+            return 0;
+
+        _db.Notifications.RemoveRange(notifications);
+        await _db.SaveChangesAsync();
+        return notifications.Count;
+    }
+
+    public async Task<int> PurgeAllReadBeforeAsync(DateTime cutoff)
+    {
+        var notifications = await _db.Notifications
+            .Where(n => n.ReadAt != null && n.CreatedAt < cutoff)
+            .ToListAsync();
+
+        if (notifications.Count == 0)
+            return 0;
+
+        _db.Notifications.RemoveRange(notifications);
+        await _db.SaveChangesAsync();
+        return notifications.Count;
     }
 
     public Task<int> GetUnreadCountAsync(int userId) =>
@@ -145,6 +202,60 @@ public class NotificationService
 
         await _db.SaveChangesAsync();
         return notifications.Count;
+    }
+
+    public async Task<int> DeleteForMessageAsync(int messageId)
+    {
+        var notifications = await _db.Notifications
+            .Where(n => n.Type == "Message")
+            .ToListAsync();
+
+        var matching = notifications
+            .Where(n => TryReadPayload(n.Payload)?.MessageId == messageId)
+            .ToList();
+
+        if (matching.Count == 0)
+            return 0;
+
+        _db.Notifications.RemoveRange(matching);
+        await _db.SaveChangesAsync();
+        return matching.Count;
+    }
+
+    public async Task<int> DeleteForConversationAsync(int conversationId)
+    {
+        var notifications = await _db.Notifications
+            .Where(n => n.Type == "Message")
+            .ToListAsync();
+
+        var matching = notifications
+            .Where(n => TryReadPayload(n.Payload)?.ConversationId == conversationId)
+            .ToList();
+
+        if (matching.Count == 0)
+            return 0;
+
+        _db.Notifications.RemoveRange(matching);
+        await _db.SaveChangesAsync();
+        return matching.Count;
+    }
+
+    public async Task<int> DeleteForUserConversationAsync(int userId, int conversationId)
+    {
+        var notifications = await _db.Notifications
+            .Where(n => n.UserId == userId && n.Type == "Message")
+            .ToListAsync();
+
+        var matching = notifications
+            .Where(n => TryReadPayload(n.Payload)?.ConversationId == conversationId)
+            .ToList();
+
+        if (matching.Count == 0)
+            return 0;
+
+        _db.Notifications.RemoveRange(matching);
+        await _db.SaveChangesAsync();
+        return matching.Count;
     }
 
     public async Task<int> MarkConversationAsReadAsync(int userId, int conversationId, DateTime readAt)

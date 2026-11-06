@@ -84,6 +84,15 @@ public sealed class UsersForm : Form
         var closeButton = Ui.Outline("Fermer", 100, 40);
         closeButton.Click += (_, _) => Close();
         footer.Controls.Add(closeButton);
+
+        if (_isAdmin)
+        {
+            var createButton = Ui.Primary("Créer un compte", 160, 40);
+            createButton.Margin = new Padding(0, 0, 10, 0);
+            createButton.Click += OnCreateUserClicked;
+            footer.Controls.Add(createButton);
+        }
+
         root.Controls.Add(footer, 0, 4);
 
         Controls.Add(root);
@@ -146,13 +155,12 @@ public sealed class UsersForm : Form
 
         if (_isAdmin && user.Id != _currentUserId)
         {
-            var action = user.IsActive
-                ? Ui.Danger("Désactiver", 96, 30)
-                : Ui.Outline("Réactiver", 96, 30);
-
-            action.Margin = new Padding(8, 0, 0, 0);
-            action.Click += async (_, _) => await ToggleActiveAsync(user);
-            right.Controls.Add(action);
+            var manage = Ui.Outline("Gérer", 84, 30);
+            manage.Margin = new Padding(8, 0, 0, 0);
+            var menu = BuildAdminMenu(user);
+            manage.ContextMenuStrip = menu;
+            manage.Click += (_, _) => menu.Show(manage, new Point(0, manage.Height));
+            right.Controls.Add(manage);
         }
 
         var state = Ui.Pill(user.IsActive ? "actif" : "inactif",
@@ -220,6 +228,119 @@ public sealed class UsersForm : Form
         }
     }
 
+    private ContextMenuStrip BuildAdminMenu(UserDto user)
+    {
+        var menu = new ContextMenuStrip();
+
+        var roleItem = new ToolStripMenuItem(
+            user.IsAdmin ? "Rétrograder en utilisateur" : "Promouvoir administrateur");
+        roleItem.Click += async (_, _) => await UpdateRoleAsync(user);
+        menu.Items.Add(roleItem);
+
+        menu.Items.Add("Réinitialiser le mot de passe", null,
+            (_, _) => ResetPassword(user));
+
+        menu.Items.Add(new ToolStripSeparator());
+
+        menu.Items.Add(
+            user.IsActive ? "Désactiver le compte" : "Réactiver le compte",
+            null,
+            async (_, _) => await ToggleActiveAsync(user));
+
+        menu.Items.Add(new ToolStripSeparator());
+
+        var deleteItem = new ToolStripMenuItem("Supprimer le compte")
+        {
+            ForeColor = Palette.Danger
+        };
+        deleteItem.Click += async (_, _) => await DeleteUserAsync(user);
+        menu.Items.Add(deleteItem);
+
+        return menu;
+    }
+
+    private async void OnCreateUserClicked(object? sender, EventArgs e)
+    {
+        if (_busy)
+            return;
+
+        using var dialog = new CreateUserForm(_api);
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+            return;
+
+        _errorLabel.Text = string.Empty;
+        try
+        {
+            await ReloadUsersAsync();
+        }
+        catch (Exception ex)
+        {
+            _errorLabel.Text = Ui.FriendlyError(ex);
+        }
+    }
+
+    private async Task UpdateRoleAsync(UserDto user)
+    {
+        if (_busy)
+            return;
+
+        var newRole = user.IsAdmin ? "User" : "Admin";
+        var verb = user.IsAdmin ? "retirer le rôle administrateur à" : "promouvoir administrateur";
+        var confirm = MessageBox.Show(this,
+            $"Voulez-vous {verb} {user.DisplayName} (@{user.Username}) ?",
+            "Changer le rôle",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Question);
+
+        if (confirm != DialogResult.Yes)
+            return;
+
+        await RunAdminActionAsync(async () =>
+        {
+            await _api.UpdateUserRoleAsync(user.Id, new UpdateUserRoleRequest { Role = newRole });
+            _errorLabel.Text = string.Empty;
+        });
+    }
+
+    private void ResetPassword(UserDto user)
+    {
+        if (_busy)
+            return;
+
+        using var dialog = new ChangePasswordForm(_api, user.Id, user.Username, adminReset: true);
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+            return;
+
+        _errorLabel.Text = string.Empty;
+        MessageBox.Show(this,
+            $"Le mot de passe de @{user.Username} a été réinitialisé.",
+            "Mot de passe réinitialisé",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Information);
+    }
+
+    private async Task DeleteUserAsync(UserDto user)
+    {
+        if (_busy)
+            return;
+
+        var confirm = MessageBox.Show(this,
+            $"Supprimer le compte de {user.DisplayName} (@{user.Username}) ?\n\n" +
+            "Le compte sera anonymisé et ne pourra plus se connecter. Les messages existants sont conservés.",
+            "Supprimer le compte",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning);
+
+        if (confirm != DialogResult.Yes)
+            return;
+
+        await RunAdminActionAsync(async () =>
+        {
+            await _api.DeleteUserAsync(user.Id);
+            _errorLabel.Text = string.Empty;
+        });
+    }
+
     private async Task ToggleActiveAsync(UserDto user)
     {
         if (_busy)
@@ -235,19 +356,27 @@ public sealed class UsersForm : Form
         if (confirm != DialogResult.Yes)
             return;
 
-        _busy = true;
-        UseWaitCursor = true;
-        _errorLabel.Text = string.Empty;
-
-        try
+        await RunAdminActionAsync(async () =>
         {
             if (user.IsActive)
                 await _api.DeactivateUserAsync(user.Id);
             else
                 await _api.ReactivateUserAsync(user.Id);
 
-            user.IsActive = !user.IsActive;
-            RebuildRows();
+            _errorLabel.Text = string.Empty;
+        });
+    }
+
+    private async Task RunAdminActionAsync(Func<Task> action)
+    {
+        _busy = true;
+        UseWaitCursor = true;
+        _errorLabel.Text = string.Empty;
+
+        try
+        {
+            await action();
+            await ReloadUsersAsync();
         }
         catch (Exception ex)
         {
@@ -258,5 +387,13 @@ public sealed class UsersForm : Form
             _busy = false;
             UseWaitCursor = false;
         }
+    }
+
+    private async Task ReloadUsersAsync()
+    {
+        var users = await _api.GetUsersAsync();
+        _users.Clear();
+        _users.AddRange(users);
+        RebuildRows();
     }
 }
