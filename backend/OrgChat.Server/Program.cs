@@ -5,6 +5,7 @@ using OrgChat.Core.Contracts.Services;
 using OrgChat.Infrastructure.Data;
 using OrgChat.Infrastructure.Services;
 using OrgChat.Server.Hubs;
+using OrgChat.Server.Seeding;
 using OrgChat.Server.Services;
 using System.Security.Claims;
 using System.Text;
@@ -44,6 +45,8 @@ builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IUserRoleService, UserRoleService>();
 builder.Services.AddScoped<IAuditService, AuditService>();
+builder.Services.AddScoped<IInvitationService, InvitationService>();
+builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 builder.Services.AddScoped<NotificationService>();
 builder.Services.AddScoped<ConversationService>();
 builder.Services.AddScoped<MessageService>();
@@ -68,6 +71,14 @@ using (var scope = app.Services.CreateScope())
         // HasData (Organisation principale, rôles système).
         await dbContext.Database.EnsureCreatedAsync();
     }
+
+    // Pré-création du compte SuperAdmin de bootstrap (Development ou
+    // OrgChat:SuperAdminPassword explicite). Ne touche jamais à un compte
+    // déjà existant : on ne réinitialise pas son mot de passe.
+    var seederLogger = scope.ServiceProvider
+        .GetRequiredService<ILoggerFactory>()
+        .CreateLogger("OrgChat.Server.Seeding.SuperAdminSeeder");
+    await SuperAdminSeeder.SeedIfNeededAsync(scope.ServiceProvider, app.Environment, app.Configuration, seederLogger);
 }
 
 if (app.Environment.IsDevelopment())

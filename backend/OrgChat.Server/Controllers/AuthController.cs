@@ -4,6 +4,7 @@ using OrgChat.Core.Constants;
 using OrgChat.Core.Contracts.Auth;
 using OrgChat.Core.Contracts.Services;
 using OrgChat.Core.Entities;
+using OrgChat.Core.Enums;
 using OrgChat.Infrastructure.Data;
 using System.Security.Claims;
 
@@ -18,6 +19,7 @@ public class AuthController : ControllerBase
     private readonly ITokenService _tokenService;
     private readonly IUserRoleService _userRoleService;
     private readonly IAuditService _auditService;
+    private readonly IInvitationService _invitationService;
     private readonly IConfiguration _configuration;
 
     public AuthController(
@@ -26,6 +28,7 @@ public class AuthController : ControllerBase
         ITokenService tokenService,
         IUserRoleService userRoleService,
         IAuditService auditService,
+        IInvitationService invitationService,
         IConfiguration configuration)
     {
         _db = db;
@@ -33,6 +36,7 @@ public class AuthController : ControllerBase
         _tokenService = tokenService;
         _userRoleService = userRoleService;
         _auditService = auditService;
+        _invitationService = invitationService;
         _configuration = configuration;
     }
 
@@ -49,11 +53,6 @@ public class AuthController : ControllerBase
     private bool IsSelfRegistrationEnabled() =>
         bool.TryParse(_configuration["OrgChat:EnableSelfRegistration"], out var enabled) && enabled;
 
-    /// <summary>
-    /// Inscription libre. Désactivée par défaut : seuls les admins créent les
-    /// comptes. Ne reste active que si OrgChat:EnableSelfRegistration=true
-    /// (utilisé uniquement pour les tests/intégrations internes).
-    /// </summary>
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request)
     {
@@ -96,7 +95,7 @@ public class AuthController : ControllerBase
             DisplayName = string.IsNullOrWhiteSpace(request.DisplayName) ? request.Username.Trim() : request.DisplayName.Trim(),
             PasswordHash = _passwordHasher.Hash(request.Password),
             IsActive = true,
-            Status = Core.Enums.AccountStatus.Active,
+            Status = AccountStatus.Active,
             OrganizationId = defaultOrgId,
             ActivatedAt = DateTime.UtcNow,
             CreatedAt = DateTime.UtcNow
@@ -112,6 +111,95 @@ public class AuthController : ControllerBase
             user.Id.ToString(), "Source : auto-inscription (env de test)", "Success", ip, ua);
 
         return Ok(await BuildAuthResponseAsync(user, ip, ua));
+    }
+
+    /// <summary>
+    /// Activation d'un compte via jeton à usage unique (première connexion)
+    /// ou réinitialisation via jeton émis par un administrateur.
+    /// Le jeton est hashé, expire et ne peut être utilisé qu'une seule fois.
+    /// </summary>
+    [HttpPost("activate")]
+    public async Task<IActionResult> Activate([FromBody] ActivateAccountRequest request)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(ModelState);
+
+        if (string.IsNullOrWhiteSpace(request.Token))
+            return BadRequest(new { error = "Le jeton d'activation est requis." });
+
+        if (string.IsNullOrWhiteSpace(request.NewPassword))
+            return BadRequest(new { error = "Le nouveau mot de passe est requis." });
+
+        if (request.NewPassword.Length < 8)
+            return BadRequest(new { error = "Le mot de passe doit contenir au moins 8 caractères." });
+
+        var (ip, ua) = GetClientInfo();
+
+        // On valide l'expiration/usage avant consommation pour ne jamais
+        // consommer un jeton invalide. ValidateAndConsume marque UsedAt.
+        var invitation = await _invitationService.ValidateAndConsumeAsync(request.Token, ip);
+        if (invitation == null)
+        {
+            return BadRequest(new { error = "Lien d'activation invalide ou expiré. Contactez votre administrateur pour un nouveau lien." });
+        }
+
+        var user = await _userRoleService.GetUserWithRolesAsync(invitation.UserId);
+        if (user == null)
+            return BadRequest(new { error = "Compte introuvable pour ce jeton." });
+
+        user.PasswordHash = _passwordHasher.Hash(request.NewPassword);
+        user.MustChangePassword = false;
+        user.IsActive = true;
+        user.Status = AccountStatus.Active;
+        user.SuspendedUntil = null;
+        user.SuspensionReason = null;
+        user.ActivatedAt ??= DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        var action = invitation.Type == InvitationType.PasswordReset
+            ? AuditActions.PasswordReset
+            : AuditActions.AccountActivated;
+
+        await _auditService.LogAsync(user.Id, action, "User", user.Id.ToString(),
+            invitation.Type == InvitationType.PasswordReset ? "Réinitialisation via jeton" : "Activation première connexion",
+            "Success", ip, ua);
+        await _auditService.LogUserActivityAsync(user.Id,
+            invitation.Type == InvitationType.PasswordReset ? ActivityTypes.Login : ActivityTypes.AccountActivated,
+            null, ip, ua);
+
+        // Connexion immédiate : première connexion = session créée.
+        return Ok(await CreateSessionAndBuildAuthAsync(user, ip, ua));
+    }
+
+    /// <summary>Vérification sans consommation d'un jeton (écran d'activation).</summary>
+    [HttpPost("invitations/validate")]
+    public async Task<IActionResult> ValidateInvitation([FromBody] ValidateInvitationRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Token))
+            return BadRequest(new { error = "Le jeton est requis." });
+
+        var tokenHash = OrgChat.Infrastructure.Services.InvitationService.HashToken(request.Token.Trim());
+        var invitation = await _db.Invitations
+            .Include(i => i.User)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(i => i.TokenHash == tokenHash);
+
+        if (invitation == null)
+            return Ok(new ValidateInvitationResponse { IsValid = false, Error = "Lien invalide." });
+
+        if (invitation.UsedAt != null)
+            return Ok(new ValidateInvitationResponse { IsValid = false, Error = "Lien déjà utilisé." });
+
+        if (invitation.ExpiresAt <= DateTime.UtcNow)
+            return Ok(new ValidateInvitationResponse { IsValid = false, Error = "Lien expiré. Contactez votre administrateur." });
+
+        return Ok(new ValidateInvitationResponse
+        {
+            IsValid = true,
+            Email = invitation.User.Email,
+            DisplayName = invitation.User.DisplayName,
+            ExpiresAt = invitation.ExpiresAt,
+        });
     }
 
     [HttpPost("login")]
@@ -138,19 +226,24 @@ public class AuthController : ControllerBase
         if (!user.IsLoginPermitted(DateTime.UtcNow))
         {
             var reason = !user.IsActive ? "Compte désactivé ou supprimé."
-                : user.Status == Core.Enums.AccountStatus.Disabled ? "Compte désactivé."
+                : user.Status == AccountStatus.Disabled ? "Compte désactivé."
                 : "Compte suspendu. Contactez votre administrateur.";
             return await RejectLoginAsync(user.Id, ip, ua, reason, reason);
+        }
+
+        if (user.MustChangePassword || user.ActivatedAt == null)
+        {
+            return await RejectLoginAsync(user.Id, ip, ua,
+                "Votre compte n'est pas encore activé. Utilisez le lien d'activation fourni par votre administrateur.",
+                "Compte en attente d'activation.");
         }
 
         if (!_passwordHasher.Verify(request.Password, user.PasswordHash))
             return await RejectLoginAsync(user.Id, ip, ua, failureMessage, "Mot de passe incorrect.");
 
-        // Révocation automatique des sessions expirées pour cet utilisateur.
         var expiredSessions = _db.Sessions.Where(s => s.UserId == user.Id && s.ExpiresAt < DateTime.UtcNow);
         _db.Sessions.RemoveRange(expiredSessions);
 
-        // Session persistée : révocable côté serveur, identifiable par jti.
         var tokenId = Guid.NewGuid().ToString("N");
         var session = new Session
         {
@@ -205,6 +298,23 @@ public class AuthController : ControllerBase
         }
 
         return Unauthorized(new { error = publicMessage });
+    }
+
+    private async Task<AuthResponse> CreateSessionAndBuildAuthAsync(User user, string? ip, string? ua)
+    {
+        var tokenId = Guid.NewGuid().ToString("N");
+        var session = new Session
+        {
+            UserId = user.Id,
+            TokenId = tokenId,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(120),
+            IpAddress = ip,
+            UserAgent = ua?.Length > 256 ? ua[..256] : ua,
+        };
+        _db.Sessions.Add(session);
+        user.LastLoginAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return await BuildAuthResponseAsync(user, ip, ua, tokenId);
     }
 
     private async Task<AuthResponse> BuildAuthResponseAsync(User user, string? ip, string? ua, string? tokenId = null)
