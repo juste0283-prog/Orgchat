@@ -1,4 +1,4 @@
-using OrgChat.Client.Services;
+﻿using OrgChat.Client.Services;
 
 namespace OrgChat.Client.Models;
 
@@ -25,7 +25,7 @@ public sealed class AuthResponse
     public string DisplayName { get; set; } = string.Empty;
     public string Role { get; set; } = string.Empty;
 
-    public bool IsAdmin => string.Equals(Role, "Admin", StringComparison.OrdinalIgnoreCase);
+    public bool IsAdmin => Role is "OrgAdmin" or "SuperAdmin";
 }
 
 public sealed class UserDto
@@ -37,7 +37,7 @@ public sealed class UserDto
     public string Role { get; set; } = string.Empty;
     public bool IsActive { get; set; }
 
-    public bool IsAdmin => string.Equals(Role, "Admin", StringComparison.OrdinalIgnoreCase);
+    public bool IsAdmin => Role is "OrgAdmin" or "SuperAdmin";
 
     public string Initials => BuildInitials(DisplayName, Username);
 
@@ -109,10 +109,10 @@ public sealed class ConversationDto
             if (names.Count == 0)
                 return Localization.F("{0} participants", Participants.Count);
             var suffix = Participants.Count > 4 ? $" +{Participants.Count - 4}" : string.Empty;
-            return Localization.F("{0} participants · {1}", Participants.Count, string.Join(", ", names) + suffix);
+            return Localization.F("{0} participants Â· {1}", Participants.Count, string.Join(", ", names) + suffix);
         }
 
-        return Localization.T("Conversation privée");
+        return Localization.T("Conversation privÃ©e");
     }
 
     public string PreviewText => string.IsNullOrWhiteSpace(LastMessagePreview)
@@ -167,7 +167,7 @@ public sealed class MessageDto
         : DateTime.SpecifyKind(CreatedAt, DateTimeKind.Local);
 
     public string Preview => string.IsNullOrWhiteSpace(Content) && Attachments.Count > 0
-        ? "📎 " + Attachments[0].OriginalFileName
+        ? "ðŸ“Ž " + Attachments[0].OriginalFileName
         : Content;
 }
 
@@ -297,3 +297,4 @@ public sealed class ResetPasswordRequest
 {
     public string NewPassword { get; set; } = string.Empty;
 }
+

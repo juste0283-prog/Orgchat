@@ -286,7 +286,7 @@ public sealed class UsersForm : Form
         if (_busy)
             return;
 
-        var newRole = user.IsAdmin ? "User" : "Admin";
+        var newRole = user.IsAdmin ? "User" : "OrgAdmin";
         var verb = user.IsAdmin
             ? Localization.T("retirer le rôle administrateur à")
             : Localization.T("promouvoir administrateur");

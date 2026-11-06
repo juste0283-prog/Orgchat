@@ -52,12 +52,35 @@ Client (WinForms, séparé)
 
 | Entité | Table | Description |
 |--------|-------|-------------|
-| `User` | `Users` | Utilisateur : username, email, display name, hash de mot de passe, rôle, statut actif |
+| `User` | `Users` | Utilisateur : username, email (pro), display name, prénom/nom, fonction, hash de mot de passe, statut (`AccountStatus` : Active/Suspended/Disabled), suspension temporaire (`SuspendedUntil`, `SuspensionReason`), organisation, département principal, `MustChangePassword` (première connexion), `ActivatedAt`, `LastLoginAt` |
 | `Conversation` | `Conversations` | Conversation : titre, type (privé/groupe), créateur, date |
 | `ConversationParticipant` | `ConversationParticipants` | Lien utilisateur ↔ conversation : date de jointure, dernière lecture, admin de groupe |
 | `Message` | `Messages` | Message : conversation, expéditeur, contenu, horodatage serveur, état édité/supprimé |
 | `Attachment` | `Attachments` | Pièce jointe : message, nom original, nom de stockage, type, taille, chemin |
 | `Notification` | `Notifications` | Notification : utilisateur, type, payload JSON, date de lecture |
+| `Organization` | `Organizations` | Organisation : nom (unique), logo, coordonnées (email/phone/adresse), statut, paramètres JSON |
+| `Department` | `Departments` | Département d'une organisation : nom (unique par organisation), description, responsable (`ManagerUserId`), statut |
+| `DepartmentMember` | `DepartmentMembers` | Affectation utilisateur ↔ département avec `IsPrimary` (conçu pour évoluer vers le multi-affectation) |
+| `Role` | `Roles` | Rôle système RBAC (sémé : SuperAdmin, OrgAdmin, Supervisor, DepartmentManager, User) |
+| `UserRole` | `UserRoles` | Attribution d'un rôle à un utilisateur, éventuellement bornée à une organisation (`OrganizationId` null = rôle global) |
+| `Invitation` | `Invitations` | Jeton d'activation ou de réinitialisation : hash SHA-256 (le jeton en clair n'est jamais stocké), expiration, usage unique |
+| `Session` | `Sessions` | Session JWT persistée : `TokenId` (claim jti, unique), expiration, révocation, IP, user-agent |
+| `AuditLog` | `AuditLogs` | Journal d'audit en écriture seule : acteur, action, entité, résultat, IP, user-agent — protégé par triggers SQLite |
+| `UserActivity` | `UserActivities` | Trace d'activité (métadonnées uniquement) : connexions, activations — pour la supervision |
+
+### 2.1.1 Rôles RBAC (sémés en base)
+
+| Id | Clé | Libellé | Périmètre |
+|----|-----|---------|-----------|
+| 1 | `SuperAdmin` | Super administrateur | Plateforme globale, organisations |
+| 2 | `OrgAdmin` | Administrateur d'organisation | Utilisateurs, départements, rôles, paramètres de son organisation |
+| 3 | `Supervisor` | Superviseur | Supervision et statistiques (métadonnées uniquement, jamais le contenu des conversations) |
+| 4 | `DepartmentManager` | Responsable de département | Membres et activité de son département |
+| 5 | `User` | Utilisateur | Messagerie et profil |
+
+Les clés sont les claims de rôle du JWT ; les permissions sont vérifiées côté serveur
+(`[Authorize(Roles = "SuperAdmin,OrgAdmin")]` + règles métier) — le client ne fait que
+masquer des menus.
 
 ### 2.2 Contraintes clés
 
@@ -67,9 +90,37 @@ Client (WinForms, séparé)
 - `Messages.ConversationId` — indexé
 - `Messages(ConversationId, CreatedAt)` — index composé pour l'historique paginé
 - Suppression en cascade : conversation → participants, messages, attachments ; message → attachments ; utilisateur → notifications
-- Suppression restreinte : conversation → créateur ; message → expéditeur ; participant → utilisateur
+- Suppression restreinte : conversation → créateur ; message → expéditeur ; participant → utilisateur ; audit → acteur (le journal survit à la suppression des comptes)
+- `Organizations.Name` — unique, indexé
+- `Departments(OrganizationId, Name)` — unique composite
+- `DepartmentMembers(DepartmentId, UserId)` — unique composite
+- `Roles.Key` — unique, sémé
+- `UserRoles(UserId, RoleId, OrganizationId)` — unique composite
+- `Invitations.TokenHash` — unique, indexé ; `Sessions.TokenId` — unique, indexé
+- `AuditLogs.CreatedAt` / `AuditLogs.Action` / `AuditLogs.ActorUserId` / `AuditLogs(EntityType, EntityId)` — indexés
+- Triggers `AuditLogs_PreventUpdate` / `AuditLogs_PreventDelete` : toute tentative
+  de modification ou de suppression directe d'une entrée d'audit en base est rejetée
+  (`RAISE(ABORT)`).
 
-### 2.3 Script PostgreSQL
+### 2.3 Migration PlatformV2 (non destructive)
+
+La migration `PlatformV2` ajoute les tables de la plateforme (Organizations,
+Departments, DepartmentMembers, Roles, UserRoles, Invitations, Sessions,
+AuditLogs, UserActivities) et les colonnes étendues de `Users` **sans détruire
+les données** :
+
+- les utilisateurs existants sont rattachés à l'organisation par défaut
+  « Organisation principale » (Id 1) ;
+- l'ancienne colonne `Users.Role` (1 = User, 2 = Admin) est convertie en
+  lignes `UserRoles` (2 → OrgAdmin, sinon → Utilisateur) puis supprimée ;
+- `Users.Status` est initialisé à `Active` (1).
+
+**Sauvegarde** : le serveur copie automatiquement la base dans
+`OrgChat.Server/backups/OrgChat_<horodatage>.db` avant chaque application de
+migrations (`DatabaseBackup.CreateBeforeMigration`). Script manuel de
+sauvegarde et de purge 30 jours : `backend/scripts/backup-database.ps1`.
+
+### 2.4 Script PostgreSQL
 
 Un script SQL équivalent est fourni dans `scripts/postgresql/init.sql` pour migration éventuelle vers PostgreSQL (nécessite le provider Npgsql EF Core).
 
@@ -118,18 +169,18 @@ Un script SQL équivalent est fourni dans `scripts/postgresql/init.sql` pour mig
 
 | Méthode | Endpoint | Corps | Réponse | Description |
 |---------|----------|-------|---------|-------------|
-| `POST` | `/api/auth/register` | `RegisterRequest` | `AuthResponse` | Inscription d'un nouvel utilisateur |
-| `POST` | `/api/auth/login` | `LoginRequest` | `AuthResponse` | Connexion, retour du jeton JWT |
+| `POST` | `/api/auth/register` | `RegisterRequest` | `AuthResponse` | Inscription libre — **désactivée par défaut** ; ne reste active que si `OrgChat:EnableSelfRegistration=true` (amorce de tests). En production, seuls les administrateurs créent les comptes. |
+| `POST` | `/api/auth/login` | `LoginRequest` | `AuthResponse` | Connexion : vérifie le statut du compte (suspension, désactivation), crée une session persistée (jti), journalise l'audit et l'activité, retourne le JWT |
+| `POST` | `/api/auth/logout` | — | 204 | Révoque la session courante et journalise la déconnexion (authentifié) |
 
-**RegisterRequest :**
-```json
-{
-  "username": "string",
-  "email": "string",
-  "displayName": "string",
-  "password": "string"
-}
-```
+**Flux de connexion (login)** :
+1. Vérification des identifiants (PBKDF2-SHA256, comparaison à temps constant).
+2. Contrôle du statut : `IsActive` + `AccountStatus` (un compte `Suspended` avec
+   `SuspendedUntil` expiré redevient automatiquement utilisable).
+3. Création d'une entrée `Sessions` avec un `jti` unique intégré au JWT
+   (expiration 120 min) — la session est révocable côté serveur.
+4. Purge des sessions expirées de l'utilisateur, mise à jour de
+   `Users.LastLoginAt`, écriture AuditLog (`LoggedIn`) + UserActivity (`Login`).
 
 **AuthResponse :**
 ```json
@@ -139,9 +190,14 @@ Un script SQL équivalent est fourni dans `scripts/postgresql/init.sql` pour mig
   "username": "string",
   "email": "string",
   "displayName": "string",
-  "role": "User | Admin"
+  "role": "SuperAdmin | OrgAdmin | Supervisor | DepartmentManager | User"
 }
 ```
+
+Le JWT embarque : `sub` (Id utilisateur), `name` (username), `jti` (session),
+`org` (Id d'organisation), autant de claims `role` que de rôles attribués.
+À chaque requête, le middleware vérifie compte actif + statut + session non
+révoquée/expirée.
 
 ### 4.2 Utilisateurs
 
@@ -700,6 +756,35 @@ dotnet run
 - **Multilinguisme** : le client est disponible en **français** et en **anglais**. Les libellés statiques sont traduits par `Localization.Apply(Control)` (parcours de l'arbre de contrôles, `PlaceholderText`, menus contextuels et `LinkLabel` recalculés) ; les chaînes dynamiques passent par `Localization.T(...)` / `Localization.F(...)`. Le changement de langue reconstruit l'interface sans perdre l'authentification.
 - **Thèmes** : `ThemeManager` définit quatre palettes (`Sombre`, `Clair`, `Océan`, `Améthyste`) ; `Palette` agit comme une façade vers le thème courant. Les couleurs `Hero*`, `OnAccent` garantissent la lisibilité sur les thèmes clairs ou à accent clair. Le changement de thème reconstruit également l'interface.
 - **Préférences** : langue et thème sont persistés dans `%LOCALAPPDATA%\OrgChat\settings.json` (`SettingsStore`), chargés dans `Program.cs` avant la création des formulaires. Le dialogue `SettingsForm` est accessible depuis l'écran de connexion, l'en-tête de la fenêtre principale et le menu tray.
+
+---
+
+## 16. Plateforme V2 — organisations, RBAC, comptes, audit (en cours)
+
+Mission : faire évoluer OrgChat en plateforme professionnelle (multi-organisations,
+RBAC 5 rôles, comptes créés par les administrateurs avec activation sécurisée,
+départements, supervision, audit).
+
+### Avancement (Phase 3 — étape 1 : socle de données)
+
+- ✅ Entités : `Organization`, `Department`, `DepartmentMember`, `Role`, `UserRole`,
+  `Invitation`, `Session`, `AuditLog`, `UserActivity` + extension de `User`
+  (prénom/nom, fonction, statut, suspension temporaire, département, `MustChangePassword`).
+- ✅ Migration `PlatformV2` non destructive (données existantes préservées ;
+  rôles convertis ; triggers d'audit) + sauvegarde automatique avant migration.
+- ✅ RBAC : rôles sémés, `IUserRoleService`, JWT avec claims de rôle multiples,
+  `org` claim (multi-organisations), `[Authorize(Roles="SuperAdmin,OrgAdmin")]`.
+- ✅ `IAuditService` : journal d'audit + traces d'activité (écriture seule).
+- ✅ Sessions persistées (jti), révocation (`POST /api/auth/logout`,
+  désactivation de compte), vérification à chaque requête dans le middleware.
+- ✅ `/api/auth/register` désactivé par défaut (`OrgChat:EnableSelfRegistration`).
+- 🔜 Étape 2 : endpoints organisations & départements (CRUD, membres, responsable).
+- 🔜 Étape 3 : invitations d'activation (création de compte par admin → lien d'activation
+  → définition du mot de passe à la première connexion), avec envoi e-mail SMTP optionnel.
+- 🔜 Étape 4 : utilisateurs v2 (filtres, pagination, suspension temporaire,
+  réinitialisation par jeton, import CSV, gestion de sessions, historique de connexions).
+- 🔜 Étape 5 : supervision (dashboards, indicateurs, rapports) — métadonnées uniquement.
+- 🔜 Étape 6 : frontend (écrans par rôle, tableaux, graphiques) + tests + documentation.
 
 ---
 

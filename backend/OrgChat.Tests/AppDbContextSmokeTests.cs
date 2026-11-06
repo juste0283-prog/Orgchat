@@ -27,10 +27,14 @@ public class AppDbContextSmokeTests
                 Email = "alice@example.org",
                 DisplayName = "Alice",
                 PasswordHash = "PBKDF2-hash",
-                Role = UserRole.User,
-                IsActive = true
+                IsActive = true,
+                OrganizationId = 1
             };
             db.Users.Add(user);
+            await db.SaveChangesAsync();
+
+            // Rôle par défaut (Utilisateur) enregistré via la jointure RBAC.
+            db.UserRoles.Add(new UserRole { UserId = user.Id, RoleId = 5, OrganizationId = 1 });
             await db.SaveChangesAsync();
 
             Assert.True(user.Id > 0);

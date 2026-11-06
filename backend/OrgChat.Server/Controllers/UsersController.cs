@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using OrgChat.Core.Constants;
 using OrgChat.Core.Contracts.Services;
 using OrgChat.Core.Contracts.Users;
 using OrgChat.Core.Entities;
@@ -16,18 +17,25 @@ namespace OrgChat.Server.Controllers;
 public class UsersController : ControllerBase
 {
     private const int MinimumPasswordLength = 8;
+    private const string AdminRoles = "SuperAdmin,OrgAdmin";
 
     private readonly AppDbContext _db;
     private readonly IPasswordHasher _passwordHasher;
+    private readonly IUserRoleService _userRoleService;
+    private readonly IAuditService _auditService;
     private readonly ILogger<UsersController> _logger;
 
     public UsersController(
         AppDbContext db,
         IPasswordHasher passwordHasher,
+        IUserRoleService userRoleService,
+        IAuditService auditService,
         ILogger<UsersController> logger)
     {
         _db = db;
         _passwordHasher = passwordHasher;
+        _userRoleService = userRoleService;
+        _auditService = auditService;
         _logger = logger;
     }
 
@@ -37,69 +45,48 @@ public class UsersController : ControllerBase
         return userIdClaim != null ? int.Parse(userIdClaim) : 0;
     }
 
-    private bool IsCurrentUserAdmin()
-    {
-        return User.IsInRole(UserRole.Admin.ToString());
-    }
+    private bool IsCurrentUserAdmin() =>
+        User.IsInRole(RoleKeys.SuperAdmin) || User.IsInRole(RoleKeys.OrgAdmin);
+
+    private (string? Ip, string? UserAgent) GetClientInfo() =>
+        (HttpContext.Connection.RemoteIpAddress?.ToString(),
+         Request.Headers.UserAgent.ToString());
 
     [HttpGet("me")]
     public async Task<IActionResult> GetMe()
     {
-        var userId = GetCurrentUserId();
-        var user = await _db.Users.FindAsync(userId);
+        var user = await _userRoleService.GetUserWithRolesAsync(GetCurrentUserId());
         if (user == null)
             return NotFound(new { error = "Utilisateur introuvable." });
 
-        return Ok(new UserDto
-        {
-            Id = user.Id,
-            Username = user.Username,
-            Email = user.Email,
-            DisplayName = user.DisplayName,
-            Role = user.Role.ToString(),
-            IsActive = user.IsActive
-        });
+        return Ok(MapUser(user));
     }
 
     [HttpGet]
     public async Task<IActionResult> GetUsers()
     {
         var users = await _db.Users
+            .AsNoTracking()
+            .Include(u => u.UserRoles)
+            .ThenInclude(ur => ur.Role)
             .OrderBy(u => u.Username)
-            .Select(u => new UserDto
-            {
-                Id = u.Id,
-                Username = u.Username,
-                Email = u.Email,
-                DisplayName = u.DisplayName,
-                Role = u.Role.ToString(),
-                IsActive = u.IsActive
-            })
             .ToListAsync();
 
-        return Ok(users);
+        return Ok(users.Select(MapUser));
     }
 
     [HttpGet("{id}")]
     public async Task<IActionResult> GetUser(int id)
     {
-        var user = await _db.Users.FindAsync(id);
+        var user = await _userRoleService.GetUserWithRolesAsync(id);
         if (user == null)
             return NotFound(new { error = "Utilisateur introuvable." });
 
-        return Ok(new UserDto
-        {
-            Id = user.Id,
-            Username = user.Username,
-            Email = user.Email,
-            DisplayName = user.DisplayName,
-            Role = user.Role.ToString(),
-            IsActive = user.IsActive
-        });
+        return Ok(MapUser(user));
     }
 
     [HttpPost]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = AdminRoles)]
     public async Task<IActionResult> CreateUser([FromBody] CreateUserRequest request)
     {
         if (!ModelState.IsValid)
@@ -115,8 +102,12 @@ public class UsersController : ControllerBase
         if (request.Password.Length < MinimumPasswordLength)
             return BadRequest(new { error = $"Le mot de passe doit contenir au moins {MinimumPasswordLength} caractères." });
 
-        if (!TryParseRole(request.Role, out var role))
+        var roleKey = string.IsNullOrWhiteSpace(request.Role) ? RoleKeys.User : request.Role;
+        if (!RoleKeys.IsValid(roleKey))
             return BadRequest(new { error = "Rôle invalide." });
+
+        if (roleKey == RoleKeys.SuperAdmin && !User.IsInRole(RoleKeys.SuperAdmin))
+            return Forbid();
 
         var username = request.Username.Trim();
         var email = request.Email.Trim();
@@ -127,57 +118,87 @@ public class UsersController : ControllerBase
         if (await _db.Users.AnyAsync(u => u.Email == email))
             return BadRequest(new { error = "Cet e-mail est déjà utilisé." });
 
+        var admin = await _userRoleService.GetUserWithRolesAsync(GetCurrentUserId());
+        if (admin == null)
+            return Unauthorized();
+
         var user = new User
         {
             Username = username,
             Email = email,
             DisplayName = string.IsNullOrWhiteSpace(request.DisplayName) ? username : request.DisplayName.Trim(),
             PasswordHash = _passwordHasher.Hash(request.Password),
-            Role = role,
             IsActive = true,
+            Status = AccountStatus.Active,
+            OrganizationId = admin.OrganizationId,
+            ActivatedAt = DateTime.UtcNow,
             CreatedAt = DateTime.UtcNow
         };
 
         _db.Users.Add(user);
         await _db.SaveChangesAsync();
 
-        _logger.LogInformation(
-            "Audit admin : {AdminId} a créé le compte {UserId} ({Username}) avec le rôle {Role}.",
-            GetCurrentUserId(), user.Id, user.Username, user.Role);
+        await _userRoleService.AssignDefaultRoleAsync(user);
+        if (roleKey != RoleKeys.User)
+        {
+            await _userRoleService.SetOrganizationRoleAsync(user, roleKey);
+        }
+        else
+        {
+            await _db.SaveChangesAsync();
+        }
 
-        return CreatedAtAction(nameof(GetUser), new { id = user.Id }, MapUser(user));
+        var (ip, ua) = GetClientInfo();
+        await _auditService.LogAsync(admin.Id, AuditActions.AccountCreated, "User",
+            user.Id.ToString(), $"Rôle : {roleKey}", "Success", ip, ua);
+
+        return CreatedAtAction(nameof(GetUser), new { id = user.Id }, MapUser(
+            await _userRoleService.GetUserWithRolesAsync(user.Id)));
     }
 
     [HttpPut("{id}/role")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = AdminRoles)]
     public async Task<IActionResult> UpdateRole(int id, [FromBody] UpdateUserRoleRequest request)
     {
-        if (!TryParseRole(request.Role, out var role))
+        var roleKey = string.IsNullOrWhiteSpace(request.Role) ? RoleKeys.User : request.Role;
+        if (!RoleKeys.IsValid(roleKey))
             return BadRequest(new { error = "Rôle invalide." });
 
         var currentUserId = GetCurrentUserId();
-        var user = await _db.Users.FindAsync(id);
+        var user = await _userRoleService.GetUserWithRolesAsync(id);
         if (user == null)
             return NotFound(new { error = "Utilisateur introuvable." });
 
-        if (id == currentUserId && role != UserRole.Admin)
+        var currentRole = _userRoleService.GetPrimaryRole(user);
+        var isSuperAdmin = User.IsInRole(RoleKeys.SuperAdmin);
+        if (currentRole == RoleKeys.SuperAdmin && !isSuperAdmin)
+            return Forbid();
+        if (roleKey == RoleKeys.SuperAdmin && !isSuperAdmin)
+            return Forbid();
+
+        if (id == currentUserId && roleKey != RoleKeys.OrgAdmin && roleKey != RoleKeys.SuperAdmin)
             return BadRequest(new { error = "Vous ne pouvez pas retirer votre propre rôle administrateur." });
 
-        if (user.Role == UserRole.Admin && role != UserRole.Admin)
+        if (currentRole is RoleKeys.OrgAdmin or RoleKeys.SuperAdmin &&
+            roleKey is not (RoleKeys.OrgAdmin or RoleKeys.SuperAdmin))
         {
-            var adminCount = await _db.Users.CountAsync(u => u.Role == UserRole.Admin && u.IsActive);
+            var adminCount = await _db.UserRoles
+                .Where(ur => ur.Role.Key == RoleKeys.OrgAdmin || ur.Role.Key == RoleKeys.SuperAdmin)
+                .Select(ur => ur.UserId)
+                .Distinct()
+                .CountAsync();
             if (adminCount <= 1)
                 return BadRequest(new { error = "Au moins un administrateur actif est requis." });
         }
 
-        user.Role = role;
-        await _db.SaveChangesAsync();
+        var oldRole = currentRole;
+        await _userRoleService.SetOrganizationRoleAsync(user, roleKey);
 
-        _logger.LogInformation(
-            "Audit admin : {AdminId} a changé le rôle de {UserId} en {Role}.",
-            currentUserId, user.Id, user.Role);
+        var (ip, ua) = GetClientInfo();
+        await _auditService.LogAsync(currentUserId, AuditActions.AccountUpdated, "User",
+            user.Id.ToString(), $"Rôle modifié : {oldRole} → {roleKey}", "Success", ip, ua);
 
-        return Ok(MapUser(user));
+        return Ok(MapUser(await _userRoleService.GetUserWithRolesAsync(user.Id)));
     }
 
     [HttpPut("me/password")]
@@ -203,14 +224,18 @@ public class UsersController : ControllerBase
             return BadRequest(new { error = "Le nouveau mot de passe doit être différent de l'ancien." });
 
         user.PasswordHash = _passwordHasher.Hash(request.NewPassword);
+        user.MustChangePassword = false;
         await _db.SaveChangesAsync();
 
-        _logger.LogInformation("Audit : l'utilisateur {UserId} a changé son mot de passe.", user.Id);
+        var (ip, ua) = GetClientInfo();
+        await _auditService.LogAsync(user.Id, AuditActions.PasswordReset, "User",
+            user.Id.ToString(), "Changement de mot de passe personnel", "Success", ip, ua);
+
         return NoContent();
     }
 
     [HttpPut("{id}/password")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = AdminRoles)]
     public async Task<IActionResult> ResetPassword(int id, [FromBody] ResetPasswordRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.NewPassword) ||
@@ -226,37 +251,40 @@ public class UsersController : ControllerBase
         user.PasswordHash = _passwordHasher.Hash(request.NewPassword);
         await _db.SaveChangesAsync();
 
-        _logger.LogInformation(
-            "Audit admin : {AdminId} a réinitialisé le mot de passe de {UserId}.",
-            GetCurrentUserId(), user.Id);
+        var (ip, ua) = GetClientInfo();
+        await _auditService.LogAsync(GetCurrentUserId(), AuditActions.PasswordReset, "User",
+            user.Id.ToString(), "Réinitialisation par un administrateur", "Success", ip, ua);
 
         return NoContent();
     }
 
     [HttpDelete("{id}")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = AdminRoles)]
     public async Task<IActionResult> DeleteUser(int id)
     {
         var currentUserId = GetCurrentUserId();
         if (id == currentUserId)
             return BadRequest(new { error = "Vous ne pouvez pas supprimer votre propre compte." });
 
-        var user = await _db.Users.FindAsync(id);
+        var user = await _userRoleService.GetUserWithRolesAsync(id);
         if (user == null)
             return NotFound(new { error = "Utilisateur introuvable." });
+
+        if (_userRoleService.GetPrimaryRole(user) == RoleKeys.SuperAdmin && !User.IsInRole(RoleKeys.SuperAdmin))
+            return Forbid();
 
         // Suppression logique : les messages restent cohérents, l'identité est anonymisée.
         user.Username = $"deleted_{user.Id}";
         user.Email = $"deleted_{user.Id}@invalid.local";
         user.DisplayName = "Compte supprimé";
         user.PasswordHash = _passwordHasher.Hash(Guid.NewGuid().ToString("N"));
-        user.Role = UserRole.User;
         user.IsActive = false;
+        user.Status = AccountStatus.Disabled;
         await _db.SaveChangesAsync();
 
-        _logger.LogInformation(
-            "Audit admin : {AdminId} a supprimé/anonymisé le compte {UserId}.",
-            currentUserId, user.Id);
+        var (ip, ua) = GetClientInfo();
+        await _auditService.LogAsync(currentUserId, AuditActions.AccountDeleted, "User",
+            user.Id.ToString(), "Compte anonymisé, désactivé", "Success", ip, ua);
 
         return NoContent();
     }
@@ -274,8 +302,13 @@ public class UsersController : ControllerBase
         if (user == null)
             return NotFound(new { error = "Utilisateur introuvable." });
 
+        var changes = new List<string>();
+
         if (!string.IsNullOrWhiteSpace(request.DisplayName))
+        {
             user.DisplayName = request.DisplayName.Trim();
+            changes.Add("nom affiché");
+        }
 
         if (!string.IsNullOrWhiteSpace(request.Email))
         {
@@ -283,23 +316,21 @@ public class UsersController : ControllerBase
             if (emailExists)
                 return BadRequest(new { error = "Cet e-mail est déjà utilisé." });
             user.Email = request.Email.Trim();
+            changes.Add("e-mail");
         }
 
         await _db.SaveChangesAsync();
 
-        return Ok(new UserDto
-        {
-            Id = user.Id,
-            Username = user.Username,
-            Email = user.Email,
-            DisplayName = user.DisplayName,
-            Role = user.Role.ToString(),
-            IsActive = user.IsActive
-        });
+        await _auditService.LogAsync(currentUserId, AuditActions.AccountUpdated, "User",
+            user.Id.ToString(), changes.Count > 0 ? $"Modifications : {string.Join(", ", changes)}" : null,
+            "Success", GetClientInfo().Ip, GetClientInfo().UserAgent);
+
+        var loaded = await _userRoleService.GetUserWithRolesAsync(user.Id);
+        return Ok(MapUser(loaded));
     }
 
     [HttpPut("{id}/deactivate")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = AdminRoles)]
     public async Task<IActionResult> DeactivateUser(int id)
     {
         var currentUserId = GetCurrentUserId();
@@ -311,13 +342,17 @@ public class UsersController : ControllerBase
             return NotFound(new { error = "Utilisateur introuvable." });
 
         user.IsActive = false;
-        await _db.SaveChangesAsync();
+        await _db.RevokeAllSessionsAsync(id);
+
+        var (ip, ua) = GetClientInfo();
+        await _auditService.LogAsync(currentUserId, AuditActions.AccountDeactivated, "User",
+            user.Id.ToString(), "Compte désactivé, sessions révoquées", "Success", ip, ua);
 
         return NoContent();
     }
 
     [HttpPut("{id}/reactivate")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = AdminRoles)]
     public async Task<IActionResult> ReactivateUser(int id)
     {
         var user = await _db.Users.FindAsync(id);
@@ -325,25 +360,16 @@ public class UsersController : ControllerBase
             return NotFound(new { error = "Utilisateur introuvable." });
 
         user.IsActive = true;
+        user.Status = AccountStatus.Active;
+        user.SuspendedUntil = null;
+        user.SuspensionReason = null;
         await _db.SaveChangesAsync();
 
-        _logger.LogInformation(
-            "Audit admin : {AdminId} a réactivé le compte {UserId}.",
-            GetCurrentUserId(), user.Id);
+        var (ip, ua) = GetClientInfo();
+        await _auditService.LogAsync(GetCurrentUserId(), AuditActions.AccountReactivated, "User",
+            user.Id.ToString(), "Compte réactivé", "Success", ip, ua);
 
         return NoContent();
-    }
-
-    private static bool TryParseRole(string? value, out UserRole role)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            role = UserRole.User;
-            return true;
-        }
-
-        return Enum.TryParse(value, ignoreCase: true, out role) &&
-               Enum.IsDefined(role);
     }
 
     private static UserDto MapUser(User user) => new()
@@ -352,7 +378,9 @@ public class UsersController : ControllerBase
         Username = user.Username,
         Email = user.Email,
         DisplayName = user.DisplayName,
-        Role = user.Role.ToString(),
+        Role = user.UserRoles.Count == 0
+            ? RoleKeys.User
+            : RoleKeys.HighestRole(user.UserRoles.Select(ur => ur.Role.Key)),
         IsActive = user.IsActive
     };
 }

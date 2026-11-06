@@ -176,7 +176,7 @@ public sealed class CreateUserForm : Form
                 Email = email,
                 DisplayName = string.IsNullOrWhiteSpace(displayName) ? username : displayName,
                 Password = password,
-                Role = _roleCombo.SelectedIndex == 1 ? "Admin" : "User"
+                Role = _roleCombo.SelectedIndex == 1 ? "OrgAdmin" : "User"
             });
 
             DialogResult = DialogResult.OK;

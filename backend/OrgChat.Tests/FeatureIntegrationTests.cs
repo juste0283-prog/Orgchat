@@ -1,8 +1,10 @@
 using Microsoft.Extensions.DependencyInjection;
+using OrgChat.Core.Constants;
 using OrgChat.Core.Contracts.Auth;
 using OrgChat.Core.Contracts.Conversations;
 using OrgChat.Core.Contracts.Messages;
 using OrgChat.Core.Contracts.Notifications;
+using OrgChat.Core.Contracts.Services;
 using OrgChat.Core.Contracts.Users;
 using OrgChat.Core.Enums;
 using OrgChat.Infrastructure.Data;
@@ -157,10 +159,10 @@ public class FeatureIntegrationTests : IClassFixture<OrgChatTestFactory>
 
         var roleResponse = await adminClient.PutAsJsonAsync(
             $"/api/users/{created.Id}/role",
-            new UpdateUserRoleRequest { Role = "Admin" });
+            new UpdateUserRoleRequest { Role = RoleKeys.OrgAdmin });
         Assert.Equal(HttpStatusCode.OK, roleResponse.StatusCode);
         var promoted = (await roleResponse.Content.ReadFromJsonAsync<UserDto>())!;
-        Assert.Equal("Admin", promoted.Role);
+        Assert.Equal(RoleKeys.OrgAdmin, promoted.Role);
 
         var newPassword = "NouveauPass123!";
         var resetResponse = await adminClient.PutAsJsonAsync(
@@ -355,10 +357,9 @@ public class FeatureIntegrationTests : IClassFixture<OrgChatTestFactory>
     private async Task PromoteToAdminAsync(int userId)
     {
         using var scope = _factory.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var user = await db.Users.FindAsync(userId);
-        Assert.NotNull(user);
-        user!.Role = UserRole.Admin;
-        await db.SaveChangesAsync();
+        var userRoleService = scope.ServiceProvider.GetRequiredService<IUserRoleService>();
+        var user = await userRoleService.GetUserWithRolesAsync(userId)
+            ?? throw new InvalidOperationException("Utilisateur introuvable.");
+        await userRoleService.SetOrganizationRoleAsync(user, RoleKeys.OrgAdmin);
     }
 }

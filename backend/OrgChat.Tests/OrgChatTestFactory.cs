@@ -27,6 +27,8 @@ public class OrgChatTestFactory : WebApplicationFactory<global::Program>
             });
         });
 
-        builder.UseEnvironment("Test");
+        builder.UseEnvironment("Development"); // TEMP DIAGNOSTIC
+        // L'inscription libre reste accessible uniquement pour l'amorçage des tests.
+        builder.UseSetting("OrgChat:EnableSelfRegistration", "true");
     }
 }

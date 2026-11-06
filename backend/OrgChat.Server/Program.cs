@@ -42,6 +42,8 @@ builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(optio
 
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 builder.Services.AddScoped<ITokenService, TokenService>();
+builder.Services.AddScoped<IUserRoleService, UserRoleService>();
+builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<NotificationService>();
 builder.Services.AddScoped<ConversationService>();
 builder.Services.AddScoped<MessageService>();
@@ -57,7 +59,14 @@ using (var scope = app.Services.CreateScope())
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     if (dbContext.Database.IsRelational())
     {
-        dbContext.Database.Migrate();
+        DatabaseBackup.CreateBeforeMigration(connectionString);
+        await dbContext.Database.MigrateAsync();
+    }
+    else
+    {
+        // Base en mémoire (tests) : crée le schéma et sème les données
+        // HasData (Organisation principale, rôles système).
+        await dbContext.Database.EnsureCreatedAsync();
     }
 }
 
@@ -69,7 +78,8 @@ if (app.Environment.IsDevelopment())
 app.UseAuthentication();
 
 // Un jeton JWT reste valide jusqu'à son expiration : on vérifie donc à chaque
-// requête que le compte existe toujours et n'a pas été désactivé/supprimé.
+// requête que le compte existe, que son statut permet la connexion (suspension
+// temporaire, désactivation) et que la session associée (jti) n'est pas révoquée.
 app.Use(async (context, next) =>
 {
     if (context.User.Identity?.IsAuthenticated == true)
@@ -78,15 +88,41 @@ app.Use(async (context, next) =>
         if (int.TryParse(userIdClaim, out var userId))
         {
             var db = context.RequestServices.GetRequiredService<AppDbContext>();
-            var isActive = await db.Users
+            var now = DateTime.UtcNow;
+            var user = await db.Users
                 .AsNoTracking()
-                .AnyAsync(u => u.Id == userId && u.IsActive);
+                .Select(u => new { u.Id, u.IsActive, u.Status, u.SuspendedUntil })
+                .FirstOrDefaultAsync(u => u.Id == userId);
 
-            if (!isActive)
+            var permitted = user != null && user.IsActive &&
+                user.Status switch
+                {
+                    OrgChat.Core.Enums.AccountStatus.Active => true,
+                    OrgChat.Core.Enums.AccountStatus.Suspended => user.SuspendedUntil != null && user.SuspendedUntil <= now,
+                    _ => false,
+                };
+
+            if (!permitted)
             {
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 await context.Response.WriteAsJsonAsync(new { error = "Compte désactivé ou supprimé." });
                 return;
+            }
+
+            var jti = context.User.FindFirst("jti")?.Value;
+            if (!string.IsNullOrEmpty(jti))
+            {
+                var isRevokedOrExpired = await db.Sessions
+                    .AsNoTracking()
+                    .AnyAsync(s => s.TokenId == jti &&
+                        (s.RevokedAt != null || s.ExpiresAt < now));
+
+                if (isRevokedOrExpired)
+                {
+                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    await context.Response.WriteAsJsonAsync(new { error = "Session expirée ou révoquée." });
+                    return;
+                }
             }
         }
     }
@@ -102,3 +138,62 @@ app.MapHub<ChatHub>("/hubs/chat");
 app.Run();
 
 public partial class Program { }
+
+/// <summary>
+/// Sauvegarde automatique de la base SQLite avant l'application des
+/// migrations, garantissant une restauration possible à tout moment.
+/// Les sauvegardes sont déposées dans un sous-dossier « backups » à côté
+/// du fichier de base ; la purge au-delà de 30 jours est assurée par
+/// backend/scripts/backup-database.ps1.
+/// </summary>
+public static class DatabaseBackup
+{
+    public static void CreateBeforeMigration(string connectionString)
+    {
+        try
+        {
+            var source = ParseDataSource(connectionString);
+            if (string.IsNullOrEmpty(source) || !File.Exists(source))
+                return;
+
+            var directory = Path.GetDirectoryName(source) ?? ".";
+            var backupDirectory = Path.Combine(directory, "backups");
+            Directory.CreateDirectory(backupDirectory);
+
+            var timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
+            File.Copy(source, Path.Combine(backupDirectory, $"OrgChat_{timestamp}.db"), overwrite: true);
+
+            foreach (var suffix in new[] { "-wal", "-shm" })
+            {
+                var side = source + suffix;
+                if (File.Exists(side))
+                    File.Copy(side, Path.Combine(backupDirectory, $"OrgChat_{timestamp}.db{suffix}"), overwrite: true);
+            }
+        }
+        catch
+        {
+            // La sauvegarde ne doit jamais empêcher le démarrage :
+            // l'échec est silencieux, les migrations restent applicables.
+        }
+    }
+
+    private static string? ParseDataSource(string connectionString)
+    {
+        foreach (var part in connectionString.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var separatorIndex = part.IndexOf('=');
+            if (separatorIndex <= 0)
+                continue;
+
+            var name = part[..separatorIndex].Trim();
+            var value = part[(separatorIndex + 1)..].Trim();
+            if (name.Equals("Data Source", StringComparison.OrdinalIgnoreCase) ||
+                name.Equals("DataSource", StringComparison.OrdinalIgnoreCase))
+            {
+                return value;
+            }
+        }
+
+        return null;
+    }
+}
