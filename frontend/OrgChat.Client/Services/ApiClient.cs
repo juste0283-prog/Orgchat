@@ -253,6 +253,19 @@ public sealed class ApiClient : IDisposable
     public Task MarkAllNotificationsReadAsync(CancellationToken ct = default) =>
         SendNoContentAsync(HttpMethod.Post, "api/notifications/read-all", null, ct);
 
+    // ------------------------------------------------------- Organisations
+
+    public Task<OrganizationDto> GetCurrentOrganizationAsync(CancellationToken ct = default) =>
+        SendAsync<OrganizationDto>(HttpMethod.Get, "api/organizations/current", null, auth: true, ct);
+
+    public Task<List<OrganizationDto>> GetOrganizationsAsync(CancellationToken ct = default) =>
+        SendAsync<List<OrganizationDto>>(HttpMethod.Get, "api/organizations", null, auth: true, ct);
+
+    // ------------------------------------------------------------ Départements
+
+    public Task<List<DepartmentDto>> GetDepartmentsAsync(CancellationToken ct = default) =>
+        SendAsync<List<DepartmentDto>>(HttpMethod.Get, "api/departments", null, auth: true, ct);
+
     // ------------------------------------------------------------- Internals
 
     private async Task<T> SendAsync<T>(HttpMethod method, string path, object? body, bool auth, CancellationToken ct)

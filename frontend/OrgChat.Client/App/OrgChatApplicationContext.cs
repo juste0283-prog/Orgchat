@@ -12,6 +12,7 @@ public sealed class OrgChatApplicationContext : ApplicationContext
     private readonly ClientOptions _options;
     private LoginForm? _login;
     private MainForm? _main;
+    private RoleDashboardForm? _dashboard;
     private AuthResponse? _auth;
     private int? _pendingConversationId;
 
@@ -23,10 +24,13 @@ public sealed class OrgChatApplicationContext : ApplicationContext
         _ = TryRestoreSessionAsync();
     }
 
+    private static bool NeedsDashboard(AuthResponse auth) =>
+        auth.Role is "SuperAdmin" or "OrgAdmin" or "Supervisor" or "DepartmentManager";
+
     private async Task TryRestoreSessionAsync()
     {
         var saved = await SessionStore.LoadAsync();
-        if (saved is null || _main is not null)
+        if (saved is null || (_main is not null || _dashboard is not null))
             return;
 
         var previousBaseUrl = _api.BaseUrl;
@@ -45,7 +49,7 @@ public sealed class OrgChatApplicationContext : ApplicationContext
             saved.Auth.DisplayName = me.DisplayName;
             saved.Auth.Role = me.Role;
 
-            if (_main is null)
+            if (_main is null && _dashboard is null)
             {
                 _login?.Hide();
                 OnAuthenticated(saved.Auth);
@@ -65,7 +69,7 @@ public sealed class OrgChatApplicationContext : ApplicationContext
         _login = login;
         login.FormClosed += (_, _) =>
         {
-            if (ReferenceEquals(_login, login) && _main is null)
+            if (ReferenceEquals(_login, login) && _main is null && _dashboard is null)
                 ExitThread();
         };
         login.Show();
@@ -75,7 +79,14 @@ public sealed class OrgChatApplicationContext : ApplicationContext
     {
         _auth = auth;
         _login?.Hide();
-        CreateMain(auth);
+
+        // Seuls les utilisateurs simples ouvrent directement la messagerie.
+        // Toute autre rôle (SuperAdmin, OrgAdmin, Superviseur, Responsable
+        // de département) atterrit d'abord sur son tableau de bord.
+        if (NeedsDashboard(auth))
+            CreateDashboard(auth);
+        else
+            CreateMain(auth);
     }
 
     private void CreateMain(AuthResponse auth)
@@ -91,14 +102,7 @@ public sealed class OrgChatApplicationContext : ApplicationContext
             var oldMain = _main;
             _main = null;
             oldMain?.CloseForLogout();
-            _auth = null;
-            _api.SetToken(null);
-            SessionStore.Clear();
-
-            var oldLogin = _login;
-            _login = null;
-            oldLogin?.Dispose();
-            ShowLogin();
+            Logout();
         };
 
         main.FormClosed += (_, _) =>
@@ -114,6 +118,66 @@ public sealed class OrgChatApplicationContext : ApplicationContext
         main.Activate();
     }
 
+    private void CreateDashboard(AuthResponse auth)
+    {
+        var dashboard = new RoleDashboardForm(_api, _options, auth);
+        _dashboard = dashboard;
+
+        dashboard.SettingsChanged += (_, _) => RebuildUi();
+
+        dashboard.LogoutRequested += (_, _) =>
+        {
+            var old = _dashboard;
+            _dashboard = null;
+            old?.Close();
+            RefreshAfterLogout();
+        };
+
+        dashboard.OpenMessagingRequested += (_, _) =>
+        {
+            // Garde le dashboard ouvert (masqué) : retour possible via la messagerie.
+            dashboard.Hide();
+            CreateMain(auth);
+            dashboard.Show();
+        };
+
+        dashboard.FormClosed += (_, _) =>
+        {
+            if (ReferenceEquals(_dashboard, dashboard) && _main is null)
+            {
+                _dashboard = null;
+                ExitThread();
+            }
+        };
+
+        dashboard.Show();
+        dashboard.Activate();
+    }
+
+    private void RefreshAfterLogout()
+    {
+        _auth = null;
+        _api.SetToken(null);
+        SessionStore.Clear();
+
+        var oldLogin = _login;
+        _login = null;
+        oldLogin?.Dispose();
+        ShowLogin();
+    }
+
+    private void Logout()
+    {
+        _auth = null;
+        _api.SetToken(null);
+        SessionStore.Clear();
+
+        var oldLogin = _login;
+        _login = null;
+        oldLogin?.Dispose();
+        ShowLogin();
+    }
+
     /// <summary>Reconstruit l'interface après un changement de langue ou de thème.</summary>
     private void RebuildUi()
     {
@@ -126,6 +190,16 @@ public sealed class OrgChatApplicationContext : ApplicationContext
 
             if (_auth is not null)
                 CreateMain(_auth);
+            return;
+        }
+
+        if (_dashboard is not null)
+        {
+            var dashboard = _dashboard;
+            _dashboard = null;
+            dashboard.Close();
+            if (_auth is not null)
+                CreateDashboard(_auth);
             return;
         }
 

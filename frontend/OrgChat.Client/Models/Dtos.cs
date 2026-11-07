@@ -42,6 +42,8 @@ public sealed class UserDto
     public string DisplayName { get; set; } = string.Empty;
     public string Role { get; set; } = string.Empty;
     public bool IsActive { get; set; }
+    public bool IsOnline { get; set; }
+    public int? DepartmentId { get; set; }
 
     public bool IsAdmin => Role is "OrgAdmin" or "SuperAdmin";
 
@@ -302,5 +304,30 @@ public sealed class ChangePasswordRequest
 public sealed class ResetPasswordRequest
 {
     public string NewPassword { get; set; } = string.Empty;
+}
+
+public sealed class OrganizationDto
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string? Email { get; set; }
+    public string? Phone { get; set; }
+    public string? Address { get; set; }
+    public bool IsActive { get; set; }
+    public int UserCount { get; set; }
+    public int DepartmentCount { get; set; }
+}
+
+public sealed class DepartmentDto
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public bool IsActive { get; set; }
+    public int OrganizationId { get; set; }
+    public int? ManagerUserId { get; set; }
+    public string? ManagerName { get; set; }
+    public int MemberCount { get; set; }
+    public DateTime CreatedAt { get; set; }
 }
 

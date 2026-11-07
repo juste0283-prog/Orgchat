@@ -7,6 +7,7 @@ using OrgChat.Core.Contracts.Users;
 using OrgChat.Core.Entities;
 using OrgChat.Core.Enums;
 using OrgChat.Infrastructure.Data;
+using OrgChat.Server.Hubs;
 using System.Security.Claims;
 
 namespace OrgChat.Server.Controllers;
@@ -63,15 +64,65 @@ public class UsersController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetUsers()
+    public async Task<IActionResult> GetUsers(
+        [FromQuery] string? search = null,
+        [FromQuery] int? departmentId = null,
+        [FromQuery] string? role = null,
+        [FromQuery] string? status = null,
+        [FromQuery] bool? isActive = null,
+        [FromQuery] int page = 0,
+        [FromQuery] int pageSize = 0)
     {
-        var users = await _db.Users
+        var query = _db.Users
             .AsNoTracking()
             .Include(u => u.UserRoles)
             .ThenInclude(ur => ur.Role)
-            .OrderBy(u => u.Username)
-            .ToListAsync();
+            .Include(u => u.Department)
+            .AsQueryable();
 
+        // Isolation stricte : un non-SuperAdmin ne voit que son organisation.
+        if (!User.IsSuperAdmin())
+        {
+            var orgId = User.GetUserOrganizationId();
+            if (orgId != 0)
+                query = query.Where(u => u.OrganizationId == orgId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim().ToLowerInvariant();
+            query = query.Where(u =>
+                u.Username.ToLower().Contains(term) ||
+                u.Email.ToLower().Contains(term) ||
+                u.DisplayName.ToLower().Contains(term) ||
+                (u.FirstName != null && u.FirstName.ToLower().Contains(term)) ||
+                (u.LastName != null && u.LastName.ToLower().Contains(term)));
+        }
+
+        if (departmentId != null)
+            query = query.Where(u => u.DepartmentId == departmentId.Value);
+
+        if (!string.IsNullOrWhiteSpace(role) && RoleKeys.IsValid(role))
+            query = query.Where(u => u.UserRoles.Any(ur => ur.Role.Key == role));
+
+        if (!string.IsNullOrWhiteSpace(status) &&
+            Enum.TryParse<AccountStatus>(status, ignoreCase: true, out var parsedStatus))
+        {
+            query = query.Where(u => u.Status == parsedStatus);
+        }
+
+        if (isActive != null)
+            query = query.Where(u => u.IsActive == isActive.Value);
+
+        query = query.OrderBy(u => u.Username);
+
+        if (page > 0 && pageSize > 0)
+        {
+            var size = Math.Clamp(pageSize, 1, 200);
+            query = query.Skip((page - 1) * size).Take(size);
+        }
+
+        var users = await query.ToListAsync();
         return Ok(users.Select(MapUser));
     }
 
@@ -82,6 +133,10 @@ public class UsersController : ControllerBase
         if (user == null)
             return NotFound(new { error = "Utilisateur introuvable." });
 
+        if (!User.BelongsToOrganization(user.OrganizationId))
+            return NotFound(new { error = "Utilisateur introuvable." });
+
+        await _db.Entry(user).Reference(u => u.Department).LoadAsync();
         return Ok(MapUser(user));
     }
 
@@ -399,9 +454,22 @@ public class UsersController : ControllerBase
         Username = user.Username,
         Email = user.Email,
         DisplayName = user.DisplayName,
+        FirstName = user.FirstName,
+        LastName = user.LastName,
+        JobTitle = user.JobTitle,
+        DepartmentId = user.DepartmentId,
+        DepartmentName = user.Department?.Name,
+        OrganizationId = user.OrganizationId,
         Role = user.UserRoles.Count == 0
             ? RoleKeys.User
             : RoleKeys.HighestRole(user.UserRoles.Select(ur => ur.Role.Key)),
-        IsActive = user.IsActive
+        IsActive = user.IsActive,
+        Status = user.Status.ToString(),
+        SuspendedUntil = user.SuspendedUntil,
+        SuspensionReason = user.SuspensionReason,
+        MustChangePassword = user.MustChangePassword,
+        ActivatedAt = user.ActivatedAt,
+        LastLoginAt = user.LastLoginAt,
+        IsOnline = ChatHub.OnlineUserIds().Contains(user.Id),
     };
 }
