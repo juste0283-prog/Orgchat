@@ -156,6 +156,10 @@ public static class Localization
         ["Prénom"] = "First name",
         ["Fonction"] = "Job title",
         ["Ajouter un utilisateur"] = "Add user",
+        ["Mot de passe (optionnel)"] = "Password (optional)",
+        ["Laisser vide : lien d'activation"] = "Leave empty: activation link",
+        ["Compte créé : @{0}. Le compte est directement prêt à l'emploi."] = "Account created: @{0}. The account is ready to use immediately.",
+        ["Compte créé : @{0}. Lien à transmettre à l'utilisateur."] = "Account created: @{0}. Link to pass to the user.",
         ["Un lien d'activation sera généré. Cet utilisateur définira son mot de passe à la première connexion."] = "An activation link will be generated. This user will define their password at first sign-in.",
 
         // ------------------------------------------------------- Profil

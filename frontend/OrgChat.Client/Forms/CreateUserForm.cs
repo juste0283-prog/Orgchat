@@ -15,6 +15,7 @@ public sealed class CreateUserForm : Form
     private readonly ComboBox _departmentCombo;
     private readonly ComboBox _roleCombo;
     private readonly CheckBox _isActiveBox;
+    private readonly TextBox _passwordBox;
     private readonly Label _errorLabel;
     private readonly RoundedButton _createButton;
     private readonly RoundedButton _cancelButton;
@@ -30,19 +31,19 @@ public sealed class CreateUserForm : Form
 
         Ui.StyleDialog(this);
         Text = "Ajouter un utilisateur";
-        ClientSize = new Size(560, 680);
+        ClientSize = new Size(560, 760);
 
         var root = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 10,
+            RowCount = 12,
             Padding = new Padding(24),
             BackColor = Palette.Background
         };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 64));
-        for (var i = 0; i < 6; i++)
+        for (var i = 0; i < 7; i++)
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 90));
@@ -52,7 +53,7 @@ public sealed class CreateUserForm : Form
         var title = Ui.Label("Ajouter un utilisateur", new Font("Segoe UI", 16f, FontStyle.Bold));
         title.Location = new Point(0, 0);
         var subtitle = Ui.Label(
-            "Un lien d'activation sera généré. Cet utilisateur définira son mot de passe à la première connexion.",
+            "Renseignez les informations. Sans mot de passe, un lien d'activation sera généré ; avec un mot de passe, le compte est créé directement prêt à l'emploi.",
             Palette.Small,
             Palette.Muted);
         subtitle.Location = new Point(0, 30);
@@ -123,9 +124,11 @@ public sealed class CreateUserForm : Form
         statusHost.Controls.Add(_isActiveBox);
         root.Controls.Add(statusHost, 0, 7);
 
+        _passwordBox = AddTextField(root, 8, "Mot de passe (optionnel)", "Laisser vide : lien d'activation", password: true);
+
         _errorLabel = Ui.Label(string.Empty, Palette.Small, Palette.Danger, autoSize: false);
         _errorLabel.Dock = DockStyle.Fill;
-        root.Controls.Add(_errorLabel, 0, 8);
+        root.Controls.Add(_errorLabel, 0, 9);
 
         var activationHost = new Panel { Dock = DockStyle.Fill, BackColor = Palette.Background };
         var activationLabel = Ui.Label("Lien d'activation (copiable)", Palette.Small, Palette.Muted);
@@ -153,7 +156,7 @@ public sealed class CreateUserForm : Form
         activationHost.Controls.Add(_activationLinkBox);
         activationHost.Controls.Add(_copyLinkButton);
         activationHost.Anchor = AnchorStyles.Left | AnchorStyles.Top;
-        root.Controls.Add(activationHost, 0, 9);
+        root.Controls.Add(activationHost, 0, 10);
 
         var footer = new FlowLayoutPanel
         {
@@ -170,10 +173,9 @@ public sealed class CreateUserForm : Form
         _cancelButton.Click += (_, _) => { DialogResult = DialogResult.Cancel; Close(); };
         footer.Controls.Add(_createButton);
         footer.Controls.Add(_cancelButton);
-        // Row 10 is footer, activation host is row 9
-        root.RowCount = 11;
+        // Row 11 is footer
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
-        root.Controls.Add(footer, 0, 10);
+        root.Controls.Add(footer, 0, 11);
 
         Controls.Add(root);
         CancelButton = _cancelButton;
@@ -264,6 +266,14 @@ public sealed class CreateUserForm : Form
             return;
         }
 
+        var directPassword = _passwordBox.Text;
+        if (!string.IsNullOrEmpty(directPassword) && directPassword.Length < 8)
+        {
+            _errorLabel.Text = Localization.T("Le nouveau mot de passe doit contenir au moins 8 caractères.");
+            _passwordBox.Focus();
+            return;
+        }
+
         _busy = true;
         _createButton.Enabled = false;
         _cancelButton.Enabled = false;
@@ -296,12 +306,15 @@ public sealed class CreateUserForm : Form
                 JobTitle = _jobTitleBox.Text.Trim(),
                 Role = roleKey,
                 IsActive = _isActiveBox.Checked,
+                Password = directPassword,
             });
 
+            var hasDirectPassword = !string.IsNullOrEmpty(directPassword);
             _activationLinkBox.Text = CreatedUser.ActivationLink ?? CreatedUser.ActivationToken ?? string.Empty;
-            _errorLabel.Text = Localization.F(
-                "Compte créé : @{0}. À transmettre à l'utilisateur pour sa première connexion.",
-                CreatedUser.Username);
+
+            _errorLabel.Text = hasDirectPassword
+                ? Localization.F("Compte créé : @{0}. Le compte est directement prêt à l'emploi.", CreatedUser.Username)
+                : Localization.F("Compte créé : @{0}. Lien à transmettre à l'utilisateur.", CreatedUser.Username);
             _errorLabel.ForeColor = Palette.Success;
             _createButton.Text = Localization.T("Fermer");
             _cancelButton.Text = Localization.T("Fermer");
