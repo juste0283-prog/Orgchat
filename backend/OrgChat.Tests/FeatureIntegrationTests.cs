@@ -360,6 +360,6 @@ public class FeatureIntegrationTests : IClassFixture<OrgChatTestFactory>
         var userRoleService = scope.ServiceProvider.GetRequiredService<IUserRoleService>();
         var user = await userRoleService.GetUserWithRolesAsync(userId)
             ?? throw new InvalidOperationException("Utilisateur introuvable.");
-        await userRoleService.SetOrganizationRoleAsync(user, RoleKeys.OrgAdmin);
+        await userRoleService.SetOrganizationRoleAsync(user, RoleKeys.SuperAdmin);
     }
 }

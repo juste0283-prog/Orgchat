@@ -106,7 +106,10 @@ public class UsersController : ControllerBase
         if (!RoleKeys.IsValid(roleKey))
             return BadRequest(new { error = "Rôle invalide." });
 
-        if (roleKey == RoleKeys.SuperAdmin && !User.IsInRole(RoleKeys.SuperAdmin))
+        // Seul le SuperAdmin peut désigner un administrateur ou un superviseur
+        // (et donc créer leurs comptes). Les OrgAdmin ne peuvent que créer
+        // des utilisateurs simples ou des responsables de département.
+        if (!CanAssignRole(roleKey))
             return Forbid();
 
         var username = request.Username.Trim();
@@ -156,6 +159,16 @@ public class UsersController : ControllerBase
             await _userRoleService.GetUserWithRolesAsync(user.Id)));
     }
 
+    private bool CanAssignRole(string roleKey)
+    {
+        // Seul le SuperAdmin peut désigner un administrateur ou un superviseur.
+        if (roleKey is RoleKeys.SuperAdmin or RoleKeys.OrgAdmin or RoleKeys.Supervisor)
+            return User.IsInRole(RoleKeys.SuperAdmin);
+
+        // Responsable de département et utilisateur : SuperAdmin ou OrgAdmin.
+        return User.IsInRole(RoleKeys.SuperAdmin) || User.IsInRole(RoleKeys.OrgAdmin);
+    }
+
     [HttpPut("{id}/role")]
     [Authorize(Roles = AdminRoles)]
     public async Task<IActionResult> UpdateRole(int id, [FromBody] UpdateUserRoleRequest request)
@@ -163,6 +176,9 @@ public class UsersController : ControllerBase
         var roleKey = string.IsNullOrWhiteSpace(request.Role) ? RoleKeys.User : request.Role;
         if (!RoleKeys.IsValid(roleKey))
             return BadRequest(new { error = "Rôle invalide." });
+
+        if (!CanAssignRole(roleKey))
+            return Forbid();
 
         var currentUserId = GetCurrentUserId();
         var user = await _userRoleService.GetUserWithRolesAsync(id);
@@ -174,6 +190,11 @@ public class UsersController : ControllerBase
         if (currentRole == RoleKeys.SuperAdmin && !isSuperAdmin)
             return Forbid();
         if (roleKey == RoleKeys.SuperAdmin && !isSuperAdmin)
+            return Forbid();
+
+        // Un OrgAdmin ne peut ni rétrograder ni toucher un compte
+        // administrateur / superviseur (rôles désignés par le SuperAdmin).
+        if (!isSuperAdmin && currentRole is RoleKeys.OrgAdmin or RoleKeys.Supervisor or RoleKeys.SuperAdmin)
             return Forbid();
 
         if (id == currentUserId && roleKey != RoleKeys.OrgAdmin && roleKey != RoleKeys.SuperAdmin)

@@ -19,7 +19,7 @@ namespace OrgChat.Server.Seeding;
 /// </summary>
 public static class SuperAdminSeeder
 {
-    public const string DefaultDevUsername = "SuperAdmin";
+    public const string DefaultDevUsername = "superAdmin";
     public const string DefaultDevPassword = "superadmin123!";
 
     public static async Task SeedIfNeededAsync(
@@ -62,6 +62,28 @@ public static class SuperAdminSeeder
             var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
 
             var now = DateTime.UtcNow;
+
+            // Ancien compte bootstrap sémé sous la casse « SuperAdmin » :
+            // le renommer en « superAdmin » (casse demandée) sans dupliquer.
+            if (username == DefaultDevUsername)
+            {
+                var legacy = await db.Users.FirstOrDefaultAsync(u => u.Username == "SuperAdmin");
+                if (legacy != null)
+                {
+                    var alreadySuper = await db.UserRoles.AnyAsync(ur =>
+                        ur.UserId == legacy.Id && ur.Role.Key == RoleKeys.SuperAdmin);
+                    legacy.Username = DefaultDevUsername;
+                    await db.SaveChangesAsync();
+                    logger.LogInformation(
+                        "Compte SuperAdmin renommé : SuperAdmin → {Username}.", DefaultDevUsername);
+                    if (!alreadySuper)
+                    {
+                        logger.LogInformation(
+                            "Le compte renommé n'est pas SuperAdmin. Le rôle n'est pas réassigné automatiquement.");
+                    }
+                    return;
+                }
+            }
 
             // Un compte existant avec ce username = déjà bootstrapé.
             var existing = await db.Users.FirstOrDefaultAsync(u => u.Username == username);
