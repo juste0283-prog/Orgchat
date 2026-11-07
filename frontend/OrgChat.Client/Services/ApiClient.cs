@@ -47,6 +47,10 @@ public sealed class ApiClient : IDisposable
     public Task<AuthResponse> RegisterAsync(RegisterRequest request, CancellationToken ct = default) =>
         SendAsync<AuthResponse>(HttpMethod.Post, "api/auth/register", request, auth: false, ct);
 
+    /// <summary>Activation première connexion / réinitialisation via jeton à usage unique.</summary>
+    public Task<AuthResponse> ActivateAsync(ActivateAccountRequest request, CancellationToken ct = default) =>
+        SendAsync<AuthResponse>(HttpMethod.Post, "api/auth/activate", request, auth: false, ct);
+
     // ----------------------------------------------------------------- Users
 
     public Task<UserDto> GetMeAsync(CancellationToken ct = default) =>
