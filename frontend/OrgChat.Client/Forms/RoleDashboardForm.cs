@@ -94,6 +94,10 @@ public sealed class RoleDashboardForm : Form
         openMessaging.Click += (_, _) => OpenMessagingRequested?.Invoke(this, EventArgs.Empty);
         actions.Controls.Add(openMessaging);
 
+        var profileButton = Ui.Outline("Mon profil", 220, 44);
+        profileButton.Click += OnProfileClicked;
+        actions.Controls.Add(profileButton);
+
         _usersButton = Ui.Outline("Gérer les utilisateurs", 220, 44);
         _usersButton.Click += OnManageUsersClicked;
         actions.Controls.Add(_usersButton);
@@ -171,6 +175,28 @@ public sealed class RoleDashboardForm : Form
         catch
         {
             return default;
+        }
+    }
+
+    private async void OnProfileClicked(object? sender, EventArgs e)
+    {
+        try
+        {
+            var me = await _api.GetMeAsync();
+            using var form = new ProfileForm(_api, me);
+            // Nom affiché + e-mail + bouton « Changer mon mot de passe »
+            // (PUT /api/users/me et PUT /api/users/me/password).
+            if (form.ShowDialog(this) == DialogResult.OK && form.UpdatedUser != null)
+            {
+                _auth.DisplayName = form.UpdatedUser.DisplayName;
+                _auth.Email = form.UpdatedUser.Email;
+                _subtitleLabel.Text =
+                    $"{_auth.DisplayName} (@{_auth.Username}) · Rôle : {RoleLabel(_auth.Role)}";
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowError(Ui.FriendlyError(ex));
         }
     }
 

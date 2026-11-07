@@ -95,6 +95,7 @@ public static class Localization
         ["Gérer les utilisateurs"] = "Manage users",
         ["Voir les départements"] = "View departments",
         ["Supervision (métadonnées)"] = "Supervision (metadata)",
+        ["Mon profil"] = "My profile",
         ["Nom d'utilisateur"] = "Username",
         ["Identifiant de connexion"] = "Login identifier",
         ["Votre identifiant"] = "Your username",
