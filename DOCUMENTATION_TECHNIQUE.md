@@ -204,22 +204,37 @@ révoquée/expirée.
 | Méthode | Endpoint | Autorisation | Description |
 |---------|----------|--------------|-------------|
 | `GET` | `/api/users/me` | Authentifié | Profil de l'utilisateur connecté |
-| `GET` | `/api/users` | Authentifié | Liste de tous les utilisateurs (infos publiques) |
-| `GET` | `/api/users/{id}` | Authentifié | Profil d'un utilisateur par ID |
-| `POST` | `/api/users` | Admin | Crée un compte (`CreateUserRequest`) |
-| `PUT` | `/api/users/{id}` | Authentifié / Admin | Modifie un profil (soi-même ou admin) |
-| `PUT` | `/api/users/{id}/role` | Admin | Change le rôle (`UpdateUserRoleRequest`) |
-| `PUT` | `/api/users/me/password` | Authentifié | Change son propre mot de passe (`ChangePasswordRequest`) |
-| `PUT` | `/api/users/{id}/password` | Admin | Réinitialise le mot de passe d'un compte (`ResetPasswordRequest`) |
+| `GET` | `/api/users` | Authentifié | Liste des utilisateurs du périmètre (infos publiques) |
+| `GET` | `/api/users/{id}` | Authentifié | Profil d'un utilisateur du périmètre |
+| `POST` | `/api/users` | SuperAdmin/OrgAdmin | Crée un compte : lien d'activation **ou** mot de passe direct (`CreateUserRequest`) |
+| `PUT` | `/api/users/{id}` | Admin / soi-même | Modifie un profil |
+| `PUT` | `/api/users/{id}/role` | SuperAdmin/OrgAdmin | Change le rôle ; `OrgAdmin`/`Supervisor` réservés au SuperAdmin |
+| `PUT` | `/api/users/me/password` | Authentifié | Change son propre mot de passe |
+| `PUT` | `/api/users/{id}/password` | Admin | Réinitialise le mot de passe |
 | `PUT` | `/api/users/{id}/deactivate` | Admin | Désactive un compte |
 | `PUT` | `/api/users/{id}/reactivate` | Admin | Réactive un compte |
+| `POST` | `/api/users/{id}/suspend` | Admin | Suspension temporaire (durée ou date, motif) |
+| `POST` | `/api/users/{id}/unsuspend` | Admin | Lève la suspension |
+| `POST` | `/api/users/{id}/reset-password` | Admin | Réinitialise via jeton (sans jamais voir le mot de passe) |
+| `POST` | `/api/users/{id}/resend-activation` | Admin | Réémet un lien d'activation (ancien jeton révoqué) |
+| `GET` | `/api/users/me/sessions` | Authentifié | Sessions actives de l'utilisateur |
+| `DELETE` | `/api/users/me/sessions/{sessionId}` | Authentifié | Révoque une de ses sessions |
+| `GET` | `/api/users/{id}/sessions` | Admin | Sessions d'un compte |
+| `DELETE` | `/api/users/{id}/sessions/{sessionId}` | Admin | Révoque une session d'un compte |
+| `DELETE` | `/api/users/{id}/sessions` | Admin | Révoque toutes les sessions d'un compte |
+| `GET` | `/api/users/me/activity` | Authentifié | Historique d'activité (connexions, etc.) |
+| `GET` | `/api/users/{id}/activity` | Admin | Historique d'activité d'un compte |
+| `POST` | `/api/users/import` | SuperAdmin/OrgAdmin | Import CSV de comptes |
 | `DELETE` | `/api/users/{id}` | Admin | Supprime/anonymise un compte (sauf soi-même) |
 
 **Règles d'administration :**
-- Un admin ne peut pas se retirer lui-même le rôle admin ni supprimer son propre compte.
+- Aucune auto-inscription : `POST /api/auth/register` est désactivé par défaut.
+- Seul le SuperAdmin peut désigner un `OrgAdmin` ou un `Supervisor`.
+- Un admin ne peut pas se retirer lui-même son propre rôle administrateur.
 - Le dernier administrateur actif est protégé : impossible de le rétrograder, de le désactiver ou de le supprimer.
+- Un `OrgAdmin` ne peut pas modifier un compte `OrgAdmin`, `Supervisor` ou `SuperAdmin`.
 - La suppression est une anonymisation (`Compte supprimé`, identifiants remplacés) afin de conserver les messages et pièces jointes liés.
-- Toute action d'administration est journalisée via `ILogger`.
+- Toute action d'administration est journalisée dans `AuditLogs` (acteur, action, entité, résultat, IP).
 
 **UserDto :**
 ```json
@@ -228,8 +243,21 @@ révoquée/expirée.
   "username": "string",
   "email": "string",
   "displayName": "string",
-  "role": "User | Admin",
-  "isActive": true
+  "firstName": "string",
+  "lastName": "string",
+  "jobTitle": "string",
+  "departmentId": 0,
+  "departmentName": "string",
+  "organizationId": 0,
+  "role": "SuperAdmin | OrgAdmin | Supervisor | DepartmentManager | User",
+  "isActive": true,
+  "status": "Active | Suspended | Disabled",
+  "suspendedUntil": null,
+  "suspensionReason": null,
+  "mustChangePassword": false,
+  "activatedAt": null,
+  "lastLoginAt": null,
+  "isOnline": false
 }
 ```
 
@@ -370,6 +398,61 @@ La recherche exige au moins 2 caractères, ignore les messages supprimés et ret
 ```
 
 Les notifications sont persistées dans la table `Notifications` existante, avec les détails du message sérialisés dans `Payload` (JSON). Elles sont créées après chaque message pour les participants autres que l'expéditeur. `POST /api/conversations/{id}/read` marque également comme lues les notifications liées à cette conversation.
+
+### 4.6 Organisations et départements
+
+**Organisations (`/api/organizations`)**
+
+| Méthode | Endpoint | Autorisation | Description |
+|---------|----------|--------------|-------------|
+| `GET` | `/current` | Authentifié | Organisation courante (nom, logo, coordonnées, paramètres) |
+| `GET` | `/` | SuperAdmin | Liste de toutes les organisations |
+| `POST` | `/` | SuperAdmin | Crée une organisation |
+| `PUT` | `/current` | SuperAdmin/OrgAdmin | Met à jour l'organisation courante |
+| `PUT` | `/{id}/activate` | SuperAdmin | Active une organisation |
+| `PUT` | `/{id}/deactivate` | SuperAdmin | Désactive une organisation |
+| `PUT` | `/current/logo` | SuperAdmin/OrgAdmin | Téléverse le logo |
+| `GET` | `/{id}/logo` | Authentifié | Récupère le logo |
+
+**Départements (`/api/departments`)**
+
+| Méthode | Endpoint | Autorisation | Description |
+|---------|----------|--------------|-------------|
+| `GET` | `/` | Authentifié | Départements du périmètre |
+| `GET` | `/{id}` | Authentifié | Détail d'un département |
+| `POST` | `/` | SuperAdmin/OrgAdmin | Crée un département |
+| `PUT` | `/{id}` | SuperAdmin/OrgAdmin | Modifie un département |
+| `DELETE` | `/{id}` | SuperAdmin/OrgAdmin | Désactive un département |
+| `POST` | `/{id}/members` | SuperAdmin/OrgAdmin | Affecte un membre |
+| `DELETE` | `/{id}/members/{userId}` | SuperAdmin/OrgAdmin | Retire un membre |
+| `GET` | `/{id}/stats` | Responsable du département ou admin | Statistiques du département |
+
+### 4.7 Supervision et audit
+
+**Supervision (`/api/supervision`)** — rôles `SuperAdmin`, `OrgAdmin`, `Supervisor`.
+Périmètre : organisation du JWT, sauf SuperAdmin (global). Métadonnées uniquement,
+aucun contenu de conversation.
+
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| `GET` | `/summary` | Compteurs globaux (comptes, présence, sessions, messages 24 h, connexions) |
+| `GET` | `/users?search=&status=&role=&departmentId=&page=&pageSize=` | Comptes paginés |
+| `GET` | `/departments` | Statistiques par département |
+| `GET` | `/activity?days=30` | Série quotidienne (1 à 90 jours) |
+| `GET` | `/connections?hours=24` | Sessions par heure (1 à 168 h) |
+| `GET` | `/health` | Santé API / base / SignalR |
+| `GET` | `/incidents?days=7&page=&pageSize=` | Échecs de connexion et résultats non `Success` |
+| `GET` | `/reports?period=daily\|weekly\|monthly` | Rapport agrégé, top utilisateurs, départements |
+
+**Audit (`/api/audit`)** — rôles `SuperAdmin`, `OrgAdmin`, `Supervisor`.
+
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| `GET` | `/?search=&action=&entityType=&result=&actorUserId=&from=&to=&page=&pageSize=` | Journal paginé et filtrable |
+| `GET` | `/facets` | Actions, types d'entité et résultats distincts |
+
+Le journal est en écriture seule (triggers SQLite). Un non-SuperAdmin ne voit que
+les entrées dont l'acteur appartient à son organisation.
 
 ---
 
@@ -759,32 +842,99 @@ dotnet run
 
 ---
 
-## 16. Plateforme V2 — organisations, RBAC, comptes, audit (en cours)
+## 16. Plateforme V2 — organisations, RBAC, comptes, supervision, audit
 
 Mission : faire évoluer OrgChat en plateforme professionnelle (multi-organisations,
 RBAC 5 rôles, comptes créés par les administrateurs avec activation sécurisée,
-départements, supervision, audit).
+départements, supervision, audit), sans réécrire la messagerie existante.
 
-### Avancement (Phase 3 — étape 1 : socle de données)
+### 16.1 État d'avancement
 
-- ✅ Entités : `Organization`, `Department`, `DepartmentMember`, `Role`, `UserRole`,
-  `Invitation`, `Session`, `AuditLog`, `UserActivity` + extension de `User`
+- ✅ **Socle de données** : `Organization`, `Department`, `DepartmentMember`, `Role`,
+  `UserRole`, `Invitation`, `Session`, `AuditLog`, `UserActivity` + extension de `User`
   (prénom/nom, fonction, statut, suspension temporaire, département, `MustChangePassword`).
-- ✅ Migration `PlatformV2` non destructive (données existantes préservées ;
-  rôles convertis ; triggers d'audit) + sauvegarde automatique avant migration.
-- ✅ RBAC : rôles sémés, `IUserRoleService`, JWT avec claims de rôle multiples,
-  `org` claim (multi-organisations), `[Authorize(Roles="SuperAdmin,OrgAdmin")]`.
-- ✅ `IAuditService` : journal d'audit + traces d'activité (écriture seule).
-- ✅ Sessions persistées (jti), révocation (`POST /api/auth/logout`,
-  désactivation de compte), vérification à chaque requête dans le middleware.
-- ✅ `/api/auth/register` désactivé par défaut (`OrgChat:EnableSelfRegistration`).
-- 🔜 Étape 2 : endpoints organisations & départements (CRUD, membres, responsable).
-- 🔜 Étape 3 : invitations d'activation (création de compte par admin → lien d'activation
-  → définition du mot de passe à la première connexion), avec envoi e-mail SMTP optionnel.
-- 🔜 Étape 4 : utilisateurs v2 (filtres, pagination, suspension temporaire,
-  réinitialisation par jeton, import CSV, gestion de sessions, historique de connexions).
-- 🔜 Étape 5 : supervision (dashboards, indicateurs, rapports) — métadonnées uniquement.
-- 🔜 Étape 6 : frontend (écrans par rôle, tableaux, graphiques) + tests + documentation.
+- ✅ **Migration `PlatformV2` non destructive** : données existantes préservées,
+  ancienne colonne `Users.Role` convertie vers `UserRoles` (2 → `OrgAdmin`, sinon `User`),
+  triggers d'audit, sauvegarde automatique avant migration.
+- ✅ **RBAC** : rôles sémés, `IUserRoleService`, JWT multi-claims `role` + `org`,
+  autorisations vérifiées côté serveur, périmètre par organisation.
+- ✅ **Comptes** : création par admin (lien d'activation ou mot de passe direct),
+  activation, désactivation, suspension temporaire, réactivation, réinitialisation,
+  sessions, historique d'activité, import CSV, filtres et pagination.
+- ✅ **Organisations et départements** : CRUD, logo, paramètres, responsable, membres, stats.
+- ✅ **Supervision** : endpoints de synthèse, utilisateurs, départements, activité,
+  santé, connexions, incidents, rapports (métadonnées uniquement).
+- ✅ **Audit** : journal append-only paginé/filtrable + facettes, protégé par triggers SQLite,
+  isolation par organisation pour les non-SuperAdmin.
+- ✅ **Frontend** : tableau de bord par rôle, module de supervision (7 pages, graphiques
+  dessinés, tableaux thémés, filtres, pagination), profil/mot de passe, gestion des comptes.
+- ✅ **Tests** : 35 tests (authentification, comptes, RBAC, isolation, supervision, audit,
+  notifications, messagerie, migrations non destructives).
+
+### 16.2 Matrice des rôles
+
+| Capacité | SuperAdmin | OrgAdmin | Supervisor | DepartmentManager | User |
+|----------|:----------:|:--------:|:----------:|:-----------------:|:----:|
+| Créer / gérer les organisations | ✅ | — | — | — | — |
+| Désigner `OrgAdmin` / `Supervisor` | ✅ | — | — | — | — |
+| Gérer les comptes de son organisation | ✅ | ✅ | — | — | — |
+| Gérer les départements | ✅ | ✅ | — | son périmètre | — |
+| Superviser (stats, rapports, incidents) | global | son org. | son org. | — | — |
+| Lire le journal d'audit | global | son org. | son org. | — | — |
+| Messagerie privée / groupes | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+Le `DepartmentManager` dispose de son propre tableau de bord ; les endpoints de
+supervision (`/api/supervision/*`, `/api/audit`) sont réservés à
+`SuperAdmin`, `OrgAdmin` et `Supervisor`.
+
+### 16.3 Endpoints de supervision (`/api/supervision`)
+
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| `GET` | `/summary` | Compteurs : utilisateurs, actifs, suspendus, désactivés, en ligne, départements, conversations, messages 24 h, nouveaux comptes 7 j, sessions actives, connexions simultanées |
+| `GET` | `/users?search=&status=&role=&departmentId=&page=&pageSize=` | Comptes paginés avec rôle, département, statut, présence, dernière connexion |
+| `GET` | `/departments` | Membres, actifs, en ligne et messages (7 j) par département |
+| `GET` | `/activity?days=` | Série quotidienne : connexions, échecs, nouveaux comptes, messages, utilisateurs actifs |
+| `GET` | `/connections?hours=` | Sessions et utilisateurs uniques par heure + connexions simultanées courantes |
+| `GET` | `/health` | État API / base / SignalR, fournisseur, disponibilité, version, sessions |
+| `GET` | `/incidents?days=&page=&pageSize=` | Échecs de connexion, accès refusés et résultats non `Success` |
+| `GET` | `/reports?period=daily\|weekly\|monthly` | Synthèse de la période, top utilisateurs, répartition par département |
+
+**Règles de confidentialité** : ces endpoints ne lisent que des compteurs et des
+métadonnées (dates, statuts, volumes). Aucun contenu de message ni pièce jointe
+n'est retourné. Le périmètre est l'organisation du JWT, sauf SuperAdmin (global).
+
+### 16.4 Endpoints d'audit (`/api/audit`)
+
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| `GET` | `/api/audit?search=&action=&entityType=&result=&actorUserId=&from=&to=&page=&pageSize=` | Journal paginé et filtrable |
+| `GET` | `/api/audit/facets` | Valeurs distinctes (actions, types d'entité, résultats) pour les filtres |
+
+Le journal est **append-only** : `AuditService` n'expose aucune mise à jour ni suppression,
+et les triggers SQLite `AuditLogs_PreventUpdate` / `AuditLogs_PreventDelete` rejettent
+toute tentative de falsification. Un non-SuperAdmin ne voit que les entrées dont
+l'acteur appartient à son organisation.
+
+### 16.5 Frontend de supervision
+
+- Formulaire `SupervisionForm` avec navigation latérale et 7 pages :
+  Vue d'ensemble, Utilisateurs, Activité, Départements, Rapports, Journal d'audit, Santé.
+- Graphiques dessinés sans dépendance externe : histogramme (`BarChartPanel`) et
+  anneau de répartition (`DonutChartPanel`).
+- Tableaux thémés (`ThemedListView`) : en-têtes sombres, lignes alternées, survol,
+  sélection douce, cohérents avec les 4 thèmes.
+- Filtres (recherche, statut, rôle, action, résultat), pagination, états de chargement,
+  messages d'erreur réseau, bouton d'actualisation.
+- Traductions FR/EN pour les libellés statiques et dynamiques.
+
+### 16.6 Reste à faire
+
+- 🔜 Tests de non-régression plus étendus sur les parcours UI (tests d'interface).
+- 🔜 Notifications temps réel des incidents de sécurité vers les superviseurs.
+- 🔜 Export PDF/CSV des rapports de supervision.
+- 🔜 Rotation de clé JWT et politique de mot de passe configurable.
+
 
 ---
 

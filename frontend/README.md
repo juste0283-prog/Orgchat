@@ -115,12 +115,29 @@ l'interface sans perdre l'authentification ni la conversation affichée.
 ### Authentification et session
 
 - Connexion par nom d'utilisateur ou e-mail et mot de passe
-- Création de compte
+- **Aucune auto-inscription** : les comptes sont créés par les administrateurs
+- Activation de compte par lien sécurisé (jeton à usage unique) ou mot de passe direct
 - Session persistante : jeton et URL serveur stockés dans
   `%LOCALAPPDATA%\OrgChat\session.dat`, chiffrés avec **DPAPI**
 - Restauration automatique de la session au démarrage via `GET /api/users/me`
-- Session supprimée si le jeton est invalide ou le compte désactivé/supprimé
+- Session supprimée si le jeton est invalide ou le compte désactivé/suspendu/supprimé
 - Déconnexion : efface la session et réaffiche l'écran de connexion
+
+### Tableau de bord et supervision
+
+- Routage par rôle : messagerie pour `User`, tableau de bord pour `SuperAdmin`,
+  `OrgAdmin`, `Supervisor` et `DepartmentManager`
+- Tableau de bord avec navigation latérale, cartes de statistiques, utilisateurs et départements
+- Module de supervision (`SupervisionForm`) pour `SuperAdmin`, `OrgAdmin`, `Supervisor` :
+  - Vue d'ensemble : comptes, actifs, en ligne, sessions, graphiques, incidents
+  - Utilisateurs : recherche, statut, rôle, département, présence, dernière connexion
+  - Activité : messages et connexions par jour, détail quotidien, connexions simultanées
+  - Départements : membres, actifs, en ligne, messages
+  - Rapports : quotidien / hebdomadaire / mensuel, top utilisateurs
+  - Journal d'audit : filtres action/résultat, pagination, IP
+  - Santé : API, base de données, SignalR, version, disponibilité
+- Graphiques et tableaux entièrement dessinés selon le thème actif, sans dépendance externe
+- **Métadonnées uniquement** : le contenu des conversations privées n'est jamais affiché
 
 ### Conversations
 
@@ -159,13 +176,15 @@ l'interface sans perdre l'authentification ni la conversation affichée.
 
 - Annuaire des utilisateurs
 - Édition de son profil (nom affiché, e-mail)
-- Changement de son propre mot de passe
-- Administration (si le compte connecté est admin) :
-  - création de compte
-  - promotion/rétrogradation de rôle
-  - réinitialisation de mot de passe
-  - activation/désactivation
-  - suppression/anonymisation
+- Changement de son propre mot de passe et gestion de ses sessions
+- Gestion centralisée des comptes (administrateurs) :
+  - création par lien d'activation ou mot de passe direct, identifiant généré
+  - modification, activation/désactivation
+  - suspension temporaire avec motif et date de fin
+  - réinitialisation (jeton, jamais de mot de passe révélé)
+  - révocation de sessions, historique de connexions
+  - import CSV, recherche et filtres paginés
+- Seul le SuperAdmin peut désigner les rôles `OrgAdmin` et `Supervisor`
 
 ### Fenêtre et cycle de vie
 
@@ -199,8 +218,10 @@ frontend/
     │   ├── SettingsStore.cs             # Préférences langue/thème (settings.json)
     │   └── Localization.cs              # Traductions FR/EN et application aux contrôles
     ├── Forms/
-    │   ├── LoginForm.cs                 # Connexion / inscription / URL serveur
+    │   ├── LoginForm.cs                 # Connexion, activation, URL serveur
     │   ├── MainForm.cs                  # Conversations, messages, recherche, tray
+    │   ├── RoleDashboardForm.cs         # Tableau de bord et navigation par rôle
+    │   ├── SupervisionForm.cs           # Supervision : 7 pages, filtres, graphiques
     │   ├── SettingsForm.cs              # Langue et thème
     │   ├── NewConversationForm.cs       # Création privée ou groupe
     │   ├── GroupMembersForm.cs          # Participants d'un groupe
@@ -213,10 +234,12 @@ frontend/
     │   └── UsersForm.cs                 # Annuaire et administration
     └── UI/
         ├── ThemeManager.cs              # Définitions des thèmes et thème actif
-        ├── Palette.cs                   #Façade vers le thème courant
+        ├── Palette.cs                   # Façade vers le thème courant
         ├── Ui.cs                        # Fabriques de contrôles et helpers
         ├── RoundedPanel.cs
         ├── RoundedButton.cs
+        ├── ThemedListView.cs            # Tableaux détaillés dessinés selon le thème
+        ├── Charts.cs                    # Histogramme et anneau de répartition
         ├── AvatarControl.cs
         ├── ConversationItem.cs
         ├── MessageBubble.cs
