@@ -17,8 +17,8 @@ public sealed class RoleDashboardForm : Form
     private readonly ApiClient _api;
     private readonly AuthResponse _auth;
 
-    private readonly ListView _usersView = new() { View = View.Details, FullRowSelect = true };
-    private readonly ListView _departmentsView = new() { View = View.Details, FullRowSelect = true };
+    private readonly ListView _usersView = new ThemedListView();
+    private readonly ListView _departmentsView = new ThemedListView();
     private Label _loadingLabel = null!;
     private Label _errorLabel = null!;
     private TextBox _searchBox = null!;
@@ -112,7 +112,7 @@ public sealed class RoleDashboardForm : Form
         nav.Controls.Add(NavButton("▦  Dashboard", active: true));
         nav.Controls.Add(NavButton("◉  Utilisateurs", enabled: isAdmin, click: OnManageUsersClicked));
         nav.Controls.Add(NavButton("▭  Départements", enabled: canSeeDepartments, click: OnManageDepartmentsClicked));
-        nav.Controls.Add(NavButton("‣  Supervision", enabled: _auth.Role is "SuperAdmin" or "OrgAdmin" or "Supervisor" or "DepartmentManager", click: OnSupervisionClicked));
+        nav.Controls.Add(NavButton("‣  Supervision", enabled: _auth.Role is "SuperAdmin" or "OrgAdmin" or "Supervisor", click: OnSupervisionClicked));
         nav.Controls.Add(NavButton("✉  Messagerie", click: (_, _) => OpenMessagingRequested?.Invoke(this, EventArgs.Empty)));
         stack.Controls.Add(nav, 0, 1);
 
@@ -358,7 +358,6 @@ public sealed class RoleDashboardForm : Form
         listView.BackColor = Palette.Surface;
         listView.ForeColor = Palette.Text;
         listView.Font = Palette.Body;
-        listView.OwnerDraw = false;
         listView.GridLines = false;
         listView.MultiSelect = false;
         listView.HeaderStyle = ColumnHeaderStyle.Nonclickable;
@@ -515,25 +514,11 @@ public sealed class RoleDashboardForm : Form
         }
     }
 
-    private async void OnSupervisionClicked(object? sender, EventArgs e)
+    private void OnSupervisionClicked(object? sender, EventArgs e)
     {
-        try
-        {
-            var users = await _api.GetUsersAsync();
-            MessageBox.Show(this,
-                $"Supervision (métadonnées uniquement, contenu des conversations non accessible) :\n\n" +
-                $"Utilisateurs inscrits : {users.Count}\n" +
-                $"Comptes actifs : {users.Count(u => u.IsActive)}\n" +
-                $"Utilisateurs en ligne : {users.Count(u => u.IsOnline)}\n\n" +
-                "Le détail par département et les rapports seront détaillés dans le module de supervision.",
-                "Supervision",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
-        }
-        catch (Exception ex)
-        {
-            _errorLabel.Text = Ui.FriendlyError(ex);
-        }
+        using var form = new SupervisionForm(_api, _auth);
+        form.ShowDialog(this);
+        _ = LoadAllAsync();
     }
 
     private static string RoleLabel(string roleKey) => roleKey switch

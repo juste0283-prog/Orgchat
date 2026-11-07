@@ -266,6 +266,105 @@ public sealed class ApiClient : IDisposable
     public Task<List<DepartmentDto>> GetDepartmentsAsync(CancellationToken ct = default) =>
         SendAsync<List<DepartmentDto>>(HttpMethod.Get, "api/departments", null, auth: true, ct);
 
+    // ------------------------------------------------------------- Supervision
+
+    public Task<SupervisionSummaryDto> GetSupervisionSummaryAsync(CancellationToken ct = default) =>
+        SendAsync<SupervisionSummaryDto>(HttpMethod.Get, "api/supervision/summary", null, auth: true, ct);
+
+    public Task<PagedResultDto<SupervisionUserDto>> GetSupervisionUsersAsync(
+        string? search = null,
+        string? status = null,
+        string? role = null,
+        int? departmentId = null,
+        int page = 1,
+        int pageSize = 25,
+        CancellationToken ct = default)
+    {
+        var query = BuildQuery(
+            ("search", search),
+            ("status", status),
+            ("role", role),
+            ("departmentId", departmentId?.ToString()),
+            ("page", Math.Max(1, page).ToString()),
+            ("pageSize", Math.Clamp(pageSize, 1, 100).ToString()));
+        return SendAsync<PagedResultDto<SupervisionUserDto>>(
+            HttpMethod.Get, $"api/supervision/users{query}", null, auth: true, ct);
+    }
+
+    public Task<List<DepartmentSupervisionDto>> GetSupervisionDepartmentsAsync(CancellationToken ct = default) =>
+        SendAsync<List<DepartmentSupervisionDto>>(HttpMethod.Get, "api/supervision/departments", null, auth: true, ct);
+
+    public Task<List<ActivityPointDto>> GetSupervisionActivityAsync(int days = 30, CancellationToken ct = default) =>
+        SendAsync<List<ActivityPointDto>>(
+            HttpMethod.Get,
+            $"api/supervision/activity?days={Math.Clamp(days, 1, 90)}",
+            null,
+            auth: true,
+            ct);
+
+    public Task<SupervisionConnectionsDto> GetSupervisionConnectionsAsync(int hours = 24, CancellationToken ct = default) =>
+        SendAsync<SupervisionConnectionsDto>(
+            HttpMethod.Get,
+            $"api/supervision/connections?hours={Math.Clamp(hours, 1, 168)}",
+            null,
+            auth: true,
+            ct);
+
+    public Task<SupervisionHealthDto> GetSupervisionHealthAsync(CancellationToken ct = default) =>
+        SendAsync<SupervisionHealthDto>(HttpMethod.Get, "api/supervision/health", null, auth: true, ct);
+
+    public Task<PagedResultDto<IncidentDto>> GetSupervisionIncidentsAsync(
+        int days = 7,
+        int page = 1,
+        int pageSize = 25,
+        CancellationToken ct = default) =>
+        SendAsync<PagedResultDto<IncidentDto>>(
+            HttpMethod.Get,
+            $"api/supervision/incidents?days={Math.Clamp(days, 1, 90)}&page={Math.Max(1, page)}&pageSize={Math.Clamp(pageSize, 1, 100)}",
+            null,
+            auth: true,
+            ct);
+
+    public Task<SupervisionReportDto> GetSupervisionReportAsync(string period = "daily", CancellationToken ct = default) =>
+        SendAsync<SupervisionReportDto>(
+            HttpMethod.Get,
+            $"api/supervision/reports?period={Uri.EscapeDataString(period)}",
+            null,
+            auth: true,
+            ct);
+
+    public Task<PagedResultDto<AuditLogDto>> GetAuditLogsAsync(
+        string? search = null,
+        string? action = null,
+        string? entityType = null,
+        string? result = null,
+        int page = 1,
+        int pageSize = 25,
+        CancellationToken ct = default)
+    {
+        var query = BuildQuery(
+            ("search", search),
+            ("action", action),
+            ("entityType", entityType),
+            ("result", result),
+            ("page", Math.Max(1, page).ToString()),
+            ("pageSize", Math.Clamp(pageSize, 1, 100).ToString()));
+        return SendAsync<PagedResultDto<AuditLogDto>>(
+            HttpMethod.Get, $"api/audit{query}", null, auth: true, ct);
+    }
+
+    public Task<AuditFacetsDto> GetAuditFacetsAsync(CancellationToken ct = default) =>
+        SendAsync<AuditFacetsDto>(HttpMethod.Get, "api/audit/facets", null, auth: true, ct);
+
+    private static string BuildQuery(params (string Key, string? Value)[] parameters)
+    {
+        var parts = parameters
+            .Where(p => !string.IsNullOrWhiteSpace(p.Value))
+            .Select(p => $"{p.Key}={Uri.EscapeDataString(p.Value!)}")
+            .ToList();
+        return parts.Count == 0 ? string.Empty : "?" + string.Join("&", parts);
+    }
+
     // ------------------------------------------------------------- Internals
 
     private async Task<T> SendAsync<T>(HttpMethod method, string path, object? body, bool auth, CancellationToken ct)

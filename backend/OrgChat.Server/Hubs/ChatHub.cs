@@ -125,6 +125,19 @@ public class ChatHub : Hub
     public static int ConcurrentConnectionCount() =>
         OnlineConnections.Sum(pair => pair.Value);
 
+    /// <summary>Nombre de connexions SignalR simultanées pour un périmètre
+    /// d'utilisateurs donné (isolation par organisation).</summary>
+    public static int ConcurrentConnectionCountForUsers(IReadOnlyCollection<int> userIds)
+    {
+        if (userIds.Count == 0)
+            return 0;
+
+        var scope = userIds as HashSet<int> ?? userIds.ToHashSet();
+        return OnlineConnections
+            .Where(pair => pair.Value > 0 && scope.Contains(pair.Key))
+            .Sum(pair => pair.Value);
+    }
+
     public async Task StartTyping(int conversationId)
     {
         await BroadcastTypingAsync(conversationId, isTyping: true);
