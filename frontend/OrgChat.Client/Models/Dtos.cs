@@ -34,7 +34,7 @@ public sealed class AuthResponse
     public bool IsAdmin => Role is "OrgAdmin" or "SuperAdmin";
 }
 
-public sealed class UserDto
+public class UserDto
 {
     public int Id { get; set; }
     public string Username { get; set; } = string.Empty;
@@ -283,11 +283,25 @@ public sealed class MessageSearchResultDto
 
 public sealed class CreateUserRequest
 {
-    public string Username { get; set; } = string.Empty;
+    public string FirstName { get; set; } = string.Empty;
+    public string LastName { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
+    public int? DepartmentId { get; set; }
+    public string JobTitle { get; set; } = string.Empty;
+    public string Role { get; set; } = "User";
+    public bool IsActive { get; set; } = true;
+    public int? OrganizationId { get; set; }
+    // Compatibilité : rempli uniquement si créé en direct (ancien flux)
+    public string Username { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
-    public string Role { get; set; } = "User";
+}
+
+public sealed class CreatedUserDto : UserDto
+{
+    public string? ActivationToken { get; set; }
+    public string? ActivationLink { get; set; }
+    public DateTime? InvitationExpiresAt { get; set; }
 }
 
 public sealed class UpdateUserRoleRequest

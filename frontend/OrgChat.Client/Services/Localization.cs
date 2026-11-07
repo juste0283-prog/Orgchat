@@ -146,6 +146,17 @@ public static class Localization
         ["Rôle"] = "Role",
         ["Créer le compte"] = "Create account",
         ["Le mot de passe doit contenir au moins {0} caractères."] = "The password must contain at least {0} characters.",
+        ["Responsable de département"] = "Department manager",
+        ["Superviseur"] = "Supervisor",
+        ["Administrateur"] = "Administrator",
+        ["Compte actif"] = "Active account",
+        ["Lien d'activation (copiable)"] = "Activation link (copyable)",
+        ["Copier"] = "Copy",
+        ["Copié"] = "Copied",
+        ["Prénom"] = "First name",
+        ["Fonction"] = "Job title",
+        ["Ajouter un utilisateur"] = "Add user",
+        ["Un lien d'activation sera généré. Cet utilisateur définira son mot de passe à la première connexion."] = "An activation link will be generated. This user will define their password at first sign-in.",
 
         // ------------------------------------------------------- Profil
         ["Mon profil"] = "My profile",

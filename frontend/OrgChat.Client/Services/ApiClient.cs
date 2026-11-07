@@ -65,8 +65,8 @@ public sealed class ApiClient : IDisposable
     public Task<UserDto> UpdateUserAsync(int id, UpdateUserRequest request, CancellationToken ct = default) =>
         SendAsync<UserDto>(HttpMethod.Put, $"api/users/{id}", request, auth: true, ct);
 
-    public Task<UserDto> CreateUserAsync(CreateUserRequest request, CancellationToken ct = default) =>
-        SendAsync<UserDto>(HttpMethod.Post, "api/users", request, auth: true, ct);
+    public Task<CreatedUserDto> CreateUserAsync(CreateUserRequest request, CancellationToken ct = default) =>
+        SendAsync<CreatedUserDto>(HttpMethod.Post, "api/users", request, auth: true, ct);
 
     public Task<UserDto> UpdateUserRoleAsync(int id, UpdateUserRoleRequest request, CancellationToken ct = default) =>
         SendAsync<UserDto>(HttpMethod.Put, $"api/users/{id}/role", request, auth: true, ct);
