@@ -1,0 +1,61 @@
+# OrgChat — Dépendances du logiciel
+# Fichier de référence à la racine du dépôt.
+# Généré à partir des fichiers .csproj (NuGet) et des prérequis système.
+# Pour installer les dépendances NuGet : `dotnet restore` sur chaque solution.
+
+# =====================================================
+# PRÉREQUIS SYSTÈME (non-NuGet)
+# =====================================================
+dotnet-sdk==10.0.403
+windows-version==Windows 10/11 (x64)
+# Client desktop uniquement (WinForms) ; le serveur peut tourner en headless (LAN/VPN).
+# Base de données : SQLite (fichier OrgChat.db, migration automatique au démarrage).
+
+# =====================================================
+# OUTILS GLOBAUX (dotnet-tools)
+# =====================================================
+dotnet-ef==10.0.0
+
+# =====================================================
+# BACKEND — OrgChat.Core (net10.0, sans NuGet)
+# =====================================================
+# (Aucune dépendance NuGet directe)
+
+# =====================================================
+# BACKEND — OrgChat.Infrastructure (net10.0)
+# =====================================================
+Microsoft.EntityFrameworkCore==10.0.0
+Microsoft.EntityFrameworkCore.Sqlite==10.0.0
+Microsoft.EntityFrameworkCore.Design==10.0.0
+System.IdentityModel.Tokens.Jwt==8.0.1
+
+# =====================================================
+# BACKEND — OrgChat.Server (net10.0, SDK Web)
+# =====================================================
+Microsoft.AspNetCore.Authentication.JwtBearer==10.0.0
+# (Inclus via le SDK Web / ASP.NET Core — aucune dépendance supplémentaire listée dans le csproj)
+
+# =====================================================
+# TESTS — OrgChat.Tests (net10.0)
+# =====================================================
+Microsoft.NET.Test.Sdk==17.13.0
+xunit==2.9.3
+xunit.runner.visualstudio==4.0.0
+Microsoft.AspNetCore.Mvc.Testing==10.0.0
+Microsoft.EntityFrameworkCore.InMemory==10.0.0
+Microsoft.EntityFrameworkCore.Sqlite==10.0.0
+
+# =====================================================
+# FRONTEND — OrgChat.Client (net10.0-windows, WinForms)
+# =====================================================
+Microsoft.AspNetCore.SignalR.Client==10.0.14
+# (WinExe, UseWindowsForms=true — aucun autre NuGet)
+
+# =====================================================
+# COMMANDES
+# =====================================================
+# Restauration backend :  dotnet restore backend/OrgChat.sln
+# Restauration frontend : dotnet restore frontend/OrgChat.Client.sln
+# Tests :                 dotnet test backend/OrgChat.sln
+# Lancement serveur :    dotnet run --project backend/OrgChat.Server/OrgChat.Server.csproj
+# Lancement client :     dotnet run --project frontend/OrgChat.Client/OrgChat.Client.csproj
