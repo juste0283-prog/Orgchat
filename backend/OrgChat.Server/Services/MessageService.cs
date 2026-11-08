@@ -141,7 +141,8 @@ public class MessageService
 
         var query = _db.Messages
             .Where(m => m.ConversationId == conversationId && !m.IsDeleted)
-            .OrderByDescending(m => m.CreatedAt);
+            .OrderByDescending(m => m.CreatedAt)
+            .ThenByDescending(m => m.Id);
 
         var totalCount = await query.CountAsync();
 

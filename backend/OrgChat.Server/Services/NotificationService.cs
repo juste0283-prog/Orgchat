@@ -307,7 +307,7 @@ public class NotificationService
         return text.Length <= 180 ? text : text[..177] + "…";
     }
 
-    private static MessageNotificationPayload? TryReadPayload(string payload)
+    private static MessageNotificationPayload? TryReadPayload(string? payload)
     {
         if (string.IsNullOrWhiteSpace(payload))
             return null;

@@ -8,9 +8,15 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
 {
     public void Configure(EntityTypeBuilder<Conversation> builder)
     {
-        builder.ToTable("Conversations");
+        builder.ToTable("Conversations", table =>
+        {
+            // 1 = Private, 2 = Group.
+            table.HasCheckConstraint("CK_Conversations_Type", "\"Type\" IN (1, 2)");
+        });
+
         builder.Property(c => c.Title).HasMaxLength(200);
         builder.Property(c => c.Type).IsRequired();
+
         builder.HasOne(c => c.CreatedBy)
             .WithMany()
             .HasForeignKey(c => c.CreatedById)
