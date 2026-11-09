@@ -255,7 +255,7 @@ public sealed class MainForm : Form
         main.RowStyles.Add(new RowStyle(SizeType.Absolute, 74));
         main.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
         main.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
-        main.RowStyles.Add(new RowStyle(SizeType.Absolute, 94));
+        main.RowStyles.Add(new RowStyle(SizeType.Absolute, 132));
 
         main.Controls.Add(BuildHeader(), 0, 0);
 
@@ -420,7 +420,7 @@ public sealed class MainForm : Form
         {
             Dock = DockStyle.Fill,
             BackColor = Palette.Background,
-            Padding = new Padding(18, 10, 18, 12)
+            Padding = new Padding(18, 8, 18, 12)
         };
 
         _composerError = Ui.Label(string.Empty, Palette.Small, Palette.Danger, autoSize: false);
@@ -435,7 +435,7 @@ public sealed class MainForm : Form
             FillColor = Palette.Surface,
             BorderColor = Palette.Border,
             CornerRadius = 12,
-            Padding = new Padding(12, 8, 8, 8)
+            Padding = new Padding(12, 10, 8, 10)
         };
 
         var grid = new TableLayoutPanel
@@ -455,7 +455,7 @@ public sealed class MainForm : Form
         _attachButton = Ui.Ghost("+", 36, 36);
         _attachButton.Font = new Font("Segoe UI", 14f, FontStyle.Regular);
         _attachButton.Dock = DockStyle.Fill;
-        _attachButton.Margin = new Padding(0, 5, 6, 3);
+        _attachButton.Margin = new Padding(0, 8, 6, 8);
         _attachButton.Enabled = false;
         _attachButton.Click += OnAttachClicked;
         grid.Controls.Add(_attachButton, 0, 0);
@@ -469,9 +469,9 @@ public sealed class MainForm : Form
             Font = Palette.Body,
             Multiline = true,
             AcceptsReturn = true,
-            ScrollBars = ScrollBars.None,
-            PlaceholderText = "Écrivez un message…",
-            Margin = new Padding(0, 2, 8, 2),
+            ScrollBars = ScrollBars.Vertical,
+            PlaceholderText = "Écrivez un message…  (Entrée : envoyer · Maj+Entrée : nouvelle ligne)",
+            Margin = new Padding(0, 6, 8, 6),
             Enabled = false
         };
         _composerBox.KeyDown += OnComposerKeyDown;
@@ -480,7 +480,7 @@ public sealed class MainForm : Form
 
         _sendButton = Ui.Primary("➤", 46, 44);
         _sendButton.Dock = DockStyle.Fill;
-        _sendButton.Margin = new Padding(4, 2, 0, 2);
+        _sendButton.Margin = new Padding(4, 8, 0, 8);
         _sendButton.Enabled = false;
         _sendButton.Click += async (_, _) => await SendMessageAsync();
         grid.Controls.Add(_sendButton, 2, 0);
