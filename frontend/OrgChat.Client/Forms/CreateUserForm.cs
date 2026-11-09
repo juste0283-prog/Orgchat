@@ -42,11 +42,11 @@ public sealed class CreateUserForm : Form
             BackColor = Palette.Background
         };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 64));
-        for (var i = 0; i < 7; i++)
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 62));
+        for (var i = 0; i < 8; i++)
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 90));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 86));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
 
         var header = new Panel { Dock = DockStyle.Fill, BackColor = Palette.Background };
@@ -173,8 +173,6 @@ public sealed class CreateUserForm : Form
         _cancelButton.Click += (_, _) => { DialogResult = DialogResult.Cancel; Close(); };
         footer.Controls.Add(_createButton);
         footer.Controls.Add(_cancelButton);
-        // Row 11 is footer
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
         root.Controls.Add(footer, 0, 11);
 
         Controls.Add(root);

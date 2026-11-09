@@ -266,6 +266,28 @@ public sealed class ApiClient : IDisposable
     public Task<List<DepartmentDto>> GetDepartmentsAsync(CancellationToken ct = default) =>
         SendAsync<List<DepartmentDto>>(HttpMethod.Get, "api/departments", null, auth: true, ct);
 
+    public Task<DepartmentDetailDto> GetDepartmentAsync(int id, CancellationToken ct = default) =>
+        SendAsync<DepartmentDetailDto>(HttpMethod.Get, $"api/departments/{id}", null, auth: true, ct);
+
+    public Task<DepartmentDto> CreateDepartmentAsync(DepartmentCreateRequest request, CancellationToken ct = default) =>
+        SendAsync<DepartmentDto>(HttpMethod.Post, "api/departments", request, auth: true, ct);
+
+    public Task<DepartmentDto> UpdateDepartmentAsync(int id, DepartmentUpdateRequest request, CancellationToken ct = default) =>
+        SendAsync<DepartmentDto>(HttpMethod.Put, $"api/departments/{id}", request, auth: true, ct);
+
+    public Task DeleteDepartmentAsync(int id, CancellationToken ct = default) =>
+        SendNoContentAsync(HttpMethod.Delete, $"api/departments/{id}", null, ct);
+
+    public Task AddDepartmentMemberAsync(int id, int userId, bool isPrimary = false, CancellationToken ct = default) =>
+        SendNoContentAsync(HttpMethod.Post, $"api/departments/{id}/members",
+            new AddDepartmentMemberRequest { UserId = userId, IsPrimary = isPrimary }, ct);
+
+    public Task RemoveDepartmentMemberAsync(int id, int userId, CancellationToken ct = default) =>
+        SendNoContentAsync(HttpMethod.Delete, $"api/departments/{id}/members/{userId}", null, ct);
+
+    public Task<DepartmentStatsDto> GetDepartmentStatsAsync(int id, CancellationToken ct = default) =>
+        SendAsync<DepartmentStatsDto>(HttpMethod.Get, $"api/departments/{id}/stats", null, auth: true, ct);
+
     // ------------------------------------------------------------- Supervision
 
     public Task<SupervisionSummaryDto> GetSupervisionSummaryAsync(CancellationToken ct = default) =>

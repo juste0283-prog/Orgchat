@@ -92,8 +92,8 @@ Les barres obliques finales sont supprimées automatiquement.
 
 Le client est disponible en **français** et en **anglais**, avec quatre thèmes visuels :
 
-- **Sombre** (par défaut) — `AppTheme.Dark`
-- **Clair** — `AppTheme.Light`
+- **Clair** (par défaut) — `AppTheme.Light`
+- **Sombre** — `AppTheme.Dark`
 - **Océan** — `AppTheme.Ocean`
 - **Améthyste** — `AppTheme.Amethyst`
 
@@ -128,6 +128,9 @@ l'interface sans perdre l'authentification ni la conversation affichée.
 - Routage par rôle : messagerie pour `User`, tableau de bord pour `SuperAdmin`,
   `OrgAdmin`, `Supervisor` et `DepartmentManager`
 - Tableau de bord avec navigation latérale, cartes de statistiques, utilisateurs et départements
+- Gestion des départements (`DepartmentsForm`) : création, modification, désactivation,
+  responsable, ajout/retrait de membres et statistiques du département
+- Interface d'administration à barre latérale bleu nuit, cohérente avec les maquettes
 - Module de supervision (`SupervisionForm`) pour `SuperAdmin`, `OrgAdmin`, `Supervisor` :
   - Vue d'ensemble : comptes, actifs, en ligne, sessions, graphiques, incidents
   - Utilisateurs : recherche, statut, rôle, département, présence, dernière connexion

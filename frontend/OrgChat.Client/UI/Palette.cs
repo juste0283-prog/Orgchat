@@ -29,6 +29,23 @@ public static class Palette
     public static Color HeroText => Current.HeroText;
     public static Color HeroMuted => Current.HeroMuted;
 
+    // Barre latérale des espaces d'administration : bleu nuit constant, quel que
+    // soit le thème, pour reprendre le rendu des maquettes OrgChat.
+    public static readonly Color DashboardSidebar = ColorTranslator.FromHtml("#0F1F36");
+    public static readonly Color DashboardSidebarHover = ColorTranslator.FromHtml("#172B49");
+    public static readonly Color DashboardSidebarCard = ColorTranslator.FromHtml("#14263F");
+    public static readonly Color DashboardSidebarBorder = ColorTranslator.FromHtml("#1D3452");
+    public static readonly Color DashboardSidebarText = Color.White;
+    public static readonly Color DashboardSidebarMuted = ColorTranslator.FromHtml("#9EAEC5");
+
+    public static readonly Color ChartBlue = ColorTranslator.FromHtml("#1B65FC");
+    public static readonly Color ChartTeal = ColorTranslator.FromHtml("#10B981");
+    public static readonly Color ChartOrange = ColorTranslator.FromHtml("#F59E0B");
+    public static readonly Color ChartPurple = ColorTranslator.FromHtml("#8B5CF6");
+    public static readonly Color ChartRed = ColorTranslator.FromHtml("#EF4444");
+    public static readonly Color ChartNavy = ColorTranslator.FromHtml("#0F1F36");
+    public static readonly Color ChartSlate = ColorTranslator.FromHtml("#64748B");
+
     public static readonly Font Body = new("Segoe UI", 9.5f);
     public static readonly Font BodyBold = new("Segoe UI", 9.5f, FontStyle.Bold);
     public static readonly Font Small = new("Segoe UI", 8.25f);
@@ -43,9 +60,18 @@ public static class Palette
     public static Color ParentBackground(Control? control)
     {
         var parent = control?.Parent;
-        return parent is RoundedPanel rounded
-            ? rounded.FillColor
-            : parent?.BackColor ?? Background;
+        while (parent is not null)
+        {
+            if (parent is RoundedPanel rounded)
+                return rounded.FillColor;
+
+            if (parent.BackColor != Color.Transparent)
+                return parent.BackColor;
+
+            parent = parent.Parent;
+        }
+
+        return Background;
     }
 
     public static Color Blend(Color baseColor, Color overlay, float amount)

@@ -9,7 +9,7 @@ public sealed class AppSettings
 {
     public AppLanguage Language { get; set; } = AppLanguage.French;
 
-    public AppTheme Theme { get; set; } = AppTheme.Dark;
+    public AppTheme Theme { get; set; } = AppTheme.Light;
 }
 
 /// <summary>Persistance des préférences dans %LOCALAPPDATA%\OrgChat\settings.json.</summary>
@@ -43,7 +43,7 @@ public static class SettingsStore
             if (!Enum.IsDefined(settings.Language))
                 settings.Language = AppLanguage.French;
             if (!Enum.IsDefined(settings.Theme))
-                settings.Theme = AppTheme.Dark;
+                settings.Theme = AppTheme.Light;
 
             return settings;
         }

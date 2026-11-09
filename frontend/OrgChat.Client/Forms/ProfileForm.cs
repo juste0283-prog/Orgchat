@@ -60,7 +60,15 @@ public sealed class ProfileForm : Form
         handle.Location = new Point(84, 34);
         header.Controls.Add(handle);
 
-        var role = Ui.Pill(user.IsAdmin ? "Administrateur" : "Utilisateur", user.IsAdmin ? Palette.Warning : Palette.Accent);
+        var roleText = user.Role switch
+        {
+            "SuperAdmin" => Localization.T("Super administrateur"),
+            "OrgAdmin" => Localization.T("Administrateur d'organisation"),
+            "Supervisor" => Localization.T("Superviseur"),
+            "DepartmentManager" => Localization.T("Responsable de département"),
+            _ => Localization.T("Utilisateur"),
+        };
+        var role = Ui.Pill(roleText, user.IsAdmin ? Palette.Warning : Palette.Accent);
         role.Location = new Point(84, 58);
         header.Controls.Add(role);
         root.Controls.Add(header, 0, 0);

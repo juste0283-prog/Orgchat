@@ -52,7 +52,7 @@ public sealed class UsersForm : Form
         header.Controls.Add(_subtitle);
         root.Controls.Add(header, 0, 0);
 
-        var searchField = Ui.Field("Rechercher un compte…", out _searchBox, height: 40);
+        var searchField = Ui.SearchField("Rechercher un compte…", out _searchBox, height: 40);
         searchField.Dock = DockStyle.Top;
         _searchBox.TextChanged += (_, _) => RebuildRows();
         root.Controls.Add(searchField, 0, 1);
@@ -165,12 +165,12 @@ public sealed class UsersForm : Form
             right.Controls.Add(manage);
         }
 
-        var state = Ui.Pill(user.IsActive ? Localization.T("actif") : Localization.T("inactif"),
+        var state = Ui.Pill(user.IsActive ? Localization.T("Actif") : Localization.T("Inactif"),
             user.IsActive ? Palette.Success : Palette.Faint);
         state.Margin = new Padding(8, 0, 0, 0);
         right.Controls.Add(state);
 
-        var role = Ui.Pill(user.IsAdmin ? Localization.T("admin") : Localization.T("utilisateur"),
+        var role = Ui.Pill(user.IsAdmin ? Localization.T("Administrateur") : Localization.T("Utilisateur"),
             user.IsAdmin ? Palette.Warning : Palette.Accent);
         role.Margin = new Padding(8, 0, 0, 0);
         right.Controls.Add(role);

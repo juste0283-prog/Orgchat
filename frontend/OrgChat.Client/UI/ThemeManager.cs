@@ -51,11 +51,11 @@ public static class ThemeManager
         new(
             AppTheme.Light,
             "Clair",
-            Hex("#F1F5F9"), Hex("#FFFFFF"), Hex("#FFFFFF"), Hex("#E2E8F0"),
-            Hex("#E8EEF5"), Hex("#CBD5E1"), Hex("#2563EB"), Hex("#1D4ED8"),
-            Hex("#DBEAFE"), Color.White, Hex("#0F172A"), Hex("#475569"),
-            Hex("#94A3B8"), Hex("#15803D"), Hex("#B45309"), Hex("#DC2626"),
-            Hex("#E2E8F0"), Hex("#E2E8F0"), Hex("#F8FAFC"), Hex("#0F172A"), Hex("#475569")),
+            Hex("#F6F7FB"), Hex("#FFFFFF"), Hex("#FFFFFF"), Hex("#F1F5F9"),
+            Hex("#EAF0F9"), Hex("#E3E9F2"), Hex("#1B65FC"), Hex("#0B54E7"),
+            Hex("#E8F0FF"), Color.White, Hex("#0F172A"), Hex("#64748B"),
+            Hex("#94A3B8"), Hex("#10B981"), Hex("#F59E0B"), Hex("#EF4444"),
+            Hex("#F1F5F9"), Hex("#0F1F36"), Hex("#0B1A2E"), Hex("#FFFFFF"), Hex("#A9B7CC")),
         new(
             AppTheme.Ocean,
             "Océan",
@@ -74,7 +74,7 @@ public static class ThemeManager
             Hex("#2A2140"), Hex("#1A1130"), Hex("#0E0918"), Hex("#F5F3FF"), Hex("#B4A7CC"))
     };
 
-    public static AppTheme CurrentTheme { get; private set; } = AppTheme.Dark;
+    public static AppTheme CurrentTheme { get; private set; } = AppTheme.Light;
 
     public static ThemeDefinition Current =>
         Themes.First(theme => theme.Id == CurrentTheme);
@@ -85,7 +85,7 @@ public static class ThemeManager
     {
         CurrentTheme = Themes.Any(candidate => candidate.Id == theme)
             ? theme
-            : AppTheme.Dark;
+            : AppTheme.Light;
     }
 
     public static ThemeDefinition Get(AppTheme theme) =>

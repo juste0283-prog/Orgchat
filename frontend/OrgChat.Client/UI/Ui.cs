@@ -61,6 +61,23 @@ public static class Ui
         return panel;
     }
 
+    /// <summary>Champ de recherche avec une icône de loupe toujours visible.</summary>
+    public static RoundedPanel SearchField(string placeholder, out TextBox textBox, int height = 38)
+    {
+        var panel = Field(placeholder, out textBox, height: height);
+        var icon = Label("\uE721", new Font("Segoe MDL2 Assets", 10f), Palette.Faint, autoSize: false);
+        icon.SetBounds(12, (height - 18) / 2, 18, 18);
+        icon.TextAlign = ContentAlignment.MiddleCenter;
+        panel.Controls.Add(icon);
+        icon.BringToFront();
+
+        var box = textBox;
+        box.Location = new Point(34, (height - box.PreferredHeight) / 2);
+        panel.Resize += (_, _) => box.Width = Math.Max(20, panel.Width - 46);
+        box.Width = Math.Max(20, panel.Width - 46);
+        return panel;
+    }
+
     public static RoundedButton Primary(string text, int width = 160, int height = 42) => new()
     {
         Text = text,

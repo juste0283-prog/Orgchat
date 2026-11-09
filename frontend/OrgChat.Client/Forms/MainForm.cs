@@ -159,7 +159,7 @@ public sealed class MainForm : Form
         sidebar.Controls.Add(brand, 0, 0);
 
         var searchHost = new Panel { Dock = DockStyle.Fill, BackColor = Palette.Sidebar, Padding = new Padding(14, 6, 14, 6) };
-        var searchField = Ui.Field("Rechercher une conversation… (Entrée : messages)", out _searchBox, height: 38);
+        var searchField = Ui.SearchField("Rechercher une conversation…", out _searchBox, height: 38);
         searchField.Dock = DockStyle.Fill;
         _searchBox.TextChanged += (_, _) => RebuildConversationList();
         _searchBox.KeyDown += OnSearchKeyDown;
@@ -452,7 +452,8 @@ public sealed class MainForm : Form
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 54));
         grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
 
-        _attachButton = Ui.Ghost("📎", 36, 36);
+        _attachButton = Ui.Ghost("+", 36, 36);
+        _attachButton.Font = new Font("Segoe UI", 14f, FontStyle.Regular);
         _attachButton.Dock = DockStyle.Fill;
         _attachButton.Margin = new Padding(0, 5, 6, 3);
         _attachButton.Enabled = false;
@@ -468,7 +469,7 @@ public sealed class MainForm : Form
             Font = Palette.Body,
             Multiline = true,
             AcceptsReturn = true,
-            ScrollBars = ScrollBars.Vertical,
+            ScrollBars = ScrollBars.None,
             PlaceholderText = "Écrivez un message…",
             Margin = new Padding(0, 2, 8, 2),
             Enabled = false

@@ -174,24 +174,70 @@ public sealed class NotificationsForm : Form
             _listPanel.Controls.Add(BuildRow(notification));
 
         if (_notifications.Count == 0)
-        {
-            var empty = Ui.Label(Localization.T("Aucune notification pour le moment."), Palette.Small, Palette.Faint);
-            empty.Margin = new Padding(4, 16, 0, 0);
-            _listPanel.Controls.Add(empty);
-        }
+            _listPanel.Controls.Add(BuildEmptyState());
 
         var unread = _notifications.Count(n => !n.IsRead);
-        _subtitle.Text = unread > 0
-            ? Localization.F("{0} notification(s) affichée(s) · {1} non lue(s)",
-                _notifications.Count, unread)
-            : Localization.F("{0} notification(s) affichée(s) · tout est lu",
-                _notifications.Count);
+        _subtitle.Text = _notifications.Count == 0
+            ? Localization.T("Aucune notification · tout est à jour")
+            : unread > 0
+                ? Localization.F("{0} notification(s) affichée(s) · {1} non lue(s)",
+                    _notifications.Count, unread)
+                : Localization.F("{0} notification(s) affichée(s) · tout est lu",
+                    _notifications.Count);
         _markAllButton.Enabled = unread > 0;
         _clearButton.Enabled = _notifications.Count > 0;
         _loadMoreButton.Visible = _hasMore;
 
         _listPanel.ResumeLayout();
         ResizeRows();
+    }
+
+    private Control BuildEmptyState()
+    {
+        var panel = new Panel
+        {
+            BackColor = Palette.Background,
+            Margin = Padding.Empty,
+        };
+
+        var badge = new RoundedPanel
+        {
+            Size = new Size(64, 64),
+            CornerRadius = 18,
+            FillColor = Palette.Blend(Palette.Surface, Palette.Accent, 0.12f),
+            BorderColor = Color.Transparent,
+            ShowBorder = false,
+        };
+        var glyph = Ui.Label("🔔", new Font("Segoe UI Symbol", 24f), Palette.Accent, autoSize: false);
+        glyph.Dock = DockStyle.Fill;
+        glyph.TextAlign = ContentAlignment.MiddleCenter;
+        badge.Controls.Add(glyph);
+
+        var title = Ui.Label(Localization.T("Aucune notification"), Palette.Title, Palette.Text,
+            autoSize: false);
+        title.TextAlign = ContentAlignment.MiddleCenter;
+        var subtitle = Ui.Label(
+            Localization.T("Vous êtes à jour. Les nouvelles notifications apparaîtront ici."),
+            Palette.Small, Palette.Muted, autoSize: false);
+        subtitle.TextAlign = ContentAlignment.MiddleCenter;
+
+        panel.Controls.Add(badge);
+        panel.Controls.Add(title);
+        panel.Controls.Add(subtitle);
+
+        void LayoutEmpty()
+        {
+            var contentHeight = 64 + 14 + 30 + 6 + 18;
+            var top = Math.Max(10, (panel.ClientSize.Height - contentHeight) / 2);
+            badge.Left = Math.Max(0, (panel.ClientSize.Width - badge.Width) / 2);
+            badge.Top = top;
+            title.SetBounds(8, top + 78, Math.Max(120, panel.ClientSize.Width - 16), 30);
+            subtitle.SetBounds(8, top + 114, Math.Max(120, panel.ClientSize.Width - 16), 18);
+        }
+
+        panel.Resize += (_, _) => LayoutEmpty();
+        LayoutEmpty();
+        return panel;
     }
 
     private Control BuildRow(NotificationDto notification)
@@ -429,6 +475,13 @@ public sealed class NotificationsForm : Form
         var width = Math.Max(280, _listPanel.ClientSize.Width - 20);
         foreach (Control control in _listPanel.Controls)
         {
+            if (control is Panel empty)
+            {
+                empty.Width = width;
+                empty.Height = Math.Max(240, _listPanel.ClientSize.Height - 12);
+                continue;
+            }
+
             if (control is not RoundedPanel row)
                 continue;
 

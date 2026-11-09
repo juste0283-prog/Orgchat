@@ -28,7 +28,7 @@ public sealed class SupervisionForm : Form
 
     private readonly Panel _pageHost = new() { Dock = DockStyle.Fill, BackColor = Palette.Background };
     private readonly Dictionary<Page, Control> _pages = new();
-    private readonly Dictionary<Page, RoundedButton> _navButtons = new();
+    private readonly Dictionary<Page, SidebarNavButton> _navButtons = new();
     private readonly Label _titleLabel;
     private readonly Label _subtitleLabel;
     private readonly Label _loadingLabel;
@@ -145,7 +145,7 @@ public sealed class SupervisionForm : Form
             Dock = DockStyle.Fill,
             CornerRadius = 0,
             ShowBorder = false,
-            FillColor = Palette.Sidebar,
+            FillColor = Palette.DashboardSidebar,
         };
 
         var stack = new TableLayoutPanel
@@ -163,11 +163,12 @@ public sealed class SupervisionForm : Form
         var brandHost = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
         var mark = new BrandMark { Location = new Point(0, 2) };
         brandHost.Controls.Add(mark);
-        var brand = Ui.Label("OrgChat", new Font("Segoe UI", 15f, FontStyle.Bold), Palette.Text, autoSize: false);
+        var brand = Ui.Label("OrgChat", new Font("Segoe UI", 15f, FontStyle.Bold),
+            Palette.DashboardSidebarText, autoSize: false);
         brand.Location = new Point(46, 2);
         brand.Size = new Size(150, 30);
         brandHost.Controls.Add(brand);
-        var subBrand = Ui.Label("Supervision", Palette.Small, Palette.Muted, autoSize: false);
+        var subBrand = Ui.Label("Supervision", Palette.Small, Palette.DashboardSidebarMuted, autoSize: false);
         subBrand.Location = new Point(46, 34);
         brandHost.Controls.Add(subBrand);
         stack.Controls.Add(brandHost, 0, 0);
@@ -177,16 +178,16 @@ public sealed class SupervisionForm : Form
             Dock = DockStyle.Fill,
             FlowDirection = FlowDirection.TopDown,
             WrapContents = false,
-            AutoScroll = true,
+            AutoScroll = false,
             BackColor = Color.Transparent,
         };
-        nav.Controls.Add(CreateNavButton("▦  Vue d'ensemble", Page.Overview));
-        nav.Controls.Add(CreateNavButton("◉  Utilisateurs", Page.Users));
-        nav.Controls.Add(CreateNavButton("↗  Activité", Page.Activity));
-        nav.Controls.Add(CreateNavButton("▭  Départements", Page.Departments));
-        nav.Controls.Add(CreateNavButton("▤  Rapports", Page.Reports));
-        nav.Controls.Add(CreateNavButton("⛨  Journal d'audit", Page.Audit));
-        nav.Controls.Add(CreateNavButton("♥  Santé du service", Page.Health));
+        nav.Controls.Add(CreateNavButton("▦", "Vue d'ensemble", Page.Overview));
+        nav.Controls.Add(CreateNavButton("◉", "Utilisateurs", Page.Users));
+        nav.Controls.Add(CreateNavButton("↗", "Activité", Page.Activity));
+        nav.Controls.Add(CreateNavButton("▭", "Départements", Page.Departments));
+        nav.Controls.Add(CreateNavButton("▤", "Rapports", Page.Reports));
+        nav.Controls.Add(CreateNavButton("⛨", "Journal d'audit", Page.Audit));
+        nav.Controls.Add(CreateNavButton("♥", "Santé du service", Page.Health));
         stack.Controls.Add(nav, 0, 1);
 
         var footer = new TableLayoutPanel
@@ -196,27 +197,59 @@ public sealed class SupervisionForm : Form
             RowCount = 2,
             BackColor = Color.Transparent,
         };
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
         var userCard = new RoundedPanel
         {
             Dock = DockStyle.Fill,
             CornerRadius = 10,
-            FillColor = Palette.Surface,
-            BorderColor = Palette.Border,
+            FillColor = Palette.DashboardSidebarCard,
+            BorderColor = Palette.DashboardSidebarBorder,
             Margin = new Padding(0, 0, 0, 8),
         };
-        var name = Ui.Label(_auth.DisplayName, Palette.SmallBold, Palette.Text, autoSize: false);
-        name.Location = new Point(10, 6);
-        name.Size = new Size(180, 18);
+        var avatar = new RoundedPanel
+        {
+            Location = new Point(9, 10),
+            Size = new Size(32, 32),
+            CornerRadius = 9,
+            FillColor = Palette.Accent,
+            BorderColor = Color.Transparent,
+            ShowBorder = false,
+        };
+        var initials = Ui.Label(Initials(_auth.DisplayName),
+            new Font("Segoe UI", 9f, FontStyle.Bold), Color.White, autoSize: false);
+        initials.Dock = DockStyle.Fill;
+        initials.TextAlign = ContentAlignment.MiddleCenter;
+        avatar.Controls.Add(initials);
+        userCard.Controls.Add(avatar);
+
+        var name = Ui.Label(_auth.DisplayName, Palette.SmallBold,
+            Palette.DashboardSidebarText, autoSize: false);
+        name.Location = new Point(49, 8);
+        name.Size = new Size(132, 18);
+        name.AutoEllipsis = true;
         userCard.Controls.Add(name);
-        var role = Ui.Label(RoleLabel(_auth.Role), Palette.Small, Palette.Muted, autoSize: false);
-        role.Location = new Point(10, 24);
-        role.Size = new Size(180, 16);
+        var role = Ui.Label(RoleLabel(_auth.Role), Palette.Small,
+            Palette.DashboardSidebarMuted, autoSize: false);
+        role.Location = new Point(49, 27);
+        role.Size = new Size(132, 16);
+        role.AutoEllipsis = true;
         userCard.Controls.Add(role);
         footer.Controls.Add(userCard, 0, 0);
 
-        var close = Ui.Outline("←  Retour au tableau de bord", 192, 40);
+        var close = new RoundedButton
+        {
+            Text = "←  Tableau de bord",
+            Width = 192,
+            Height = 40,
+            NormalColor = Palette.DashboardSidebarCard,
+            HoverColor = Palette.DashboardSidebarHover,
+            PressedColor = Palette.DashboardSidebarHover,
+            ForeColor = Palette.DashboardSidebarText,
+            BorderColor = Palette.DashboardSidebarBorder,
+            CornerRadius = 9,
+            Font = Palette.Small,
+        };
         close.Click += (_, _) => Close();
         footer.Controls.Add(close, 0, 1);
         stack.Controls.Add(footer, 0, 2);
@@ -225,14 +258,27 @@ public sealed class SupervisionForm : Form
         return sidebar;
     }
 
-    private RoundedButton CreateNavButton(string text, Page page)
+    private SidebarNavButton CreateNavButton(string glyph, string text, Page page)
     {
-        var button = Ui.Outline(text, 192, 40);
-        button.Margin = new Padding(0, 0, 0, 6);
-        button.TextAlign = ContentAlignment.MiddleLeft;
+        var button = new SidebarNavButton(glyph, text)
+        {
+            Width = 192,
+            Height = 40,
+            Margin = new Padding(0, 0, 0, 6),
+        };
         button.Click += async (_, _) => await ShowPageAsync(page);
         _navButtons[page] = button;
         return button;
+    }
+
+    private static string Initials(string name)
+    {
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+            return "?";
+        return parts.Length == 1
+            ? parts[0][..Math.Min(2, parts[0].Length)].ToUpperInvariant()
+            : string.Concat(parts[0][0], parts[^1][0]).ToUpperInvariant();
     }
 
     private Control BuildMain()
@@ -365,15 +411,7 @@ public sealed class SupervisionForm : Form
     private void UpdateNavStyles()
     {
         foreach (var pair in _navButtons)
-        {
-            var active = pair.Key == _current;
-            pair.Value.Outline = !active;
-            pair.Value.NormalColor = Palette.AccentSoft;
-            pair.Value.HoverColor = Palette.SurfaceHover;
-            pair.Value.ForeColor = active ? Palette.Text : Palette.Muted;
-            pair.Value.Font = active ? Palette.BodyBold : Palette.Body;
-            pair.Value.Invalidate();
-        }
+            pair.Value.Active = pair.Key == _current;
     }
 
     private static (string Title, string Subtitle) TitlesFor(Page page) => page switch
@@ -621,15 +659,15 @@ public sealed class SupervisionForm : Form
             RowCount = 1,
             BackColor = Palette.Background,
         };
-        bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 56f));
-        bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 44f));
+        bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 58f));
+        bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 42f));
 
         _ovIncidents = new ThemedListView();
-        SetColumns(_ovIncidents, ("Date", 120), ("Acteur", 130), ("Action", 150), ("Résultat", 80));
+        SetColumns(_ovIncidents, ("Date", 100), ("Acteur", 165), ("Action", 95), ("Résultat", 82));
         bottom.Controls.Add(ListCard("Incidents récents", _ovIncidents), 0, 0);
 
         _ovDepartments = new ThemedListView();
-        SetColumns(_ovDepartments, ("Département", 160), ("Membres", 70), ("En ligne", 70));
+        SetColumns(_ovDepartments, ("Département", 160), ("Membres", 88), ("En ligne", 78));
         bottom.Controls.Add(ListCard("Départements", _ovDepartments), 1, 0);
 
         page.Controls.Add(bottom, 0, 2);
@@ -663,7 +701,7 @@ public sealed class SupervisionForm : Form
         _ovIncidents.Items.Clear();
         foreach (var incident in (await incidentsTask).Items)
         {
-            var item = new ListViewItem(FormatDateTime(incident.CreatedAt));
+            var item = new ListViewItem(FormatShortDateTime(incident.CreatedAt));
             item.SubItems.Add(incident.ActorName);
             item.SubItems.Add(Localization.T(incident.Action));
             item.SubItems.Add(Localization.T(incident.Result));
@@ -1366,6 +1404,17 @@ public sealed class SupervisionForm : Form
 
         var local = value.Value.Kind == DateTimeKind.Utc ? value.Value.ToLocalTime() : value.Value;
         return local.ToString("dd/MM/yyyy HH:mm");
+    }
+
+    private static string FormatShortDateTime(DateTime? value)
+    {
+        if (value is null)
+            return "—";
+
+        var local = value.Value.Kind == DateTimeKind.Utc ? value.Value.ToLocalTime() : value.Value;
+        return local.Year == DateTime.Today.Year
+            ? local.ToString("dd/MM HH:mm")
+            : local.ToString("dd/MM/yy HH:mm");
     }
 
     private static string StatusLabel(string status) => status switch
