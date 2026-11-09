@@ -586,7 +586,7 @@ public sealed class SupervisionForm : Form
 
     private static TextBox StyledSearch(string placeholder, int width, out RoundedPanel field)
     {
-        field = Ui.Field(placeholder, out var box);
+        field = Ui.SearchField(placeholder, out var box, height: 40);
         field.Width = width;
         field.Margin = new Padding(0, 0, 10, 0);
         return box;
@@ -779,13 +779,13 @@ public sealed class SupervisionForm : Form
 
         _usersView = new ThemedListView();
         SetColumns(_usersView,
-            ("Utilisateur", 140),
-            ("Nom affiché", 170),
-            ("Rôle", 150),
-            ("Département", 150),
-            ("Statut", 90),
+            ("Utilisateur", 120),
+            ("Nom affiché", 155),
+            ("Rôle", 165),
+            ("Département", 95),
+            ("Statut", 75),
             ("En ligne", 70),
-            ("Dernière connexion", 150));
+            ("Dernière connexion", 130));
         page.Controls.Add(ListCard("Comptes", _usersView), 0, 1);
 
         var pager = new TableLayoutPanel
@@ -863,7 +863,7 @@ public sealed class SupervisionForm : Form
         {
             var item = new ListViewItem(user.Username);
             item.SubItems.Add(user.DisplayName);
-            item.SubItems.Add(Localization.T(RoleLabel(user.Role)));
+            item.SubItems.Add(Localization.T(RoleShortLabel(user.Role)));
             item.SubItems.Add(user.DepartmentName ?? "—");
             item.SubItems.Add(StatusLabel(user.Status));
             item.SubItems.Add(user.IsOnline ? "●" : "○");
@@ -1066,11 +1066,11 @@ public sealed class SupervisionForm : Form
         for (var i = 0; i < 6; i++)
             cards.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / 6f));
 
-        var newUsers = MetricCard("Nouveaux comptes", "—", "Sur la période", Palette.Accent, out _reportUsers);
+        var newUsers = MetricCard("Comptes", "—", "Nouveaux comptes", Palette.Accent, out _reportUsers);
         newUsers.Margin = new Padding(0, 0, 8, 8);
         cards.Controls.Add(newUsers, 0, 0);
 
-        var active = MetricCard("Utilisateurs actifs", "—", "Ayant une activité", Palette.Success, out _reportActive);
+        var active = MetricCard("Actifs", "—", "Utilisateurs actifs", Palette.Success, out _reportActive);
         active.Margin = new Padding(0, 0, 8, 8);
         cards.Controls.Add(active, 1, 0);
 
@@ -1107,7 +1107,7 @@ public sealed class SupervisionForm : Form
 
         _reportDepartments = new ThemedListView();
         SetColumns(_reportDepartments,
-            ("Département", 160), ("Membres", 70), ("Actifs", 70), ("Messages", 90));
+            ("Département", 160), ("Membres", 90), ("Actifs", 70), ("Messages", 90));
         lists.Controls.Add(ListCard("Départements", _reportDepartments), 1, 0);
 
         page.Controls.Add(lists, 0, 2);
@@ -1212,13 +1212,13 @@ public sealed class SupervisionForm : Form
 
         _auditView = new ThemedListView();
         SetColumns(_auditView,
-            ("Date", 130),
-            ("Acteur", 140),
-            ("Action", 160),
-            ("Entité", 120),
-            ("Résultat", 90),
-            ("Détails", 250),
-            ("IP", 110));
+            ("Date", 135),
+            ("Acteur", 150),
+            ("Action", 110),
+            ("Entité", 85),
+            ("Résultat", 80),
+            ("Détails", 160),
+            ("IP", 80));
         page.Controls.Add(ListCard("Journal d'audit (append-only)", _auditView), 0, 1);
 
         var pager = new TableLayoutPanel
@@ -1378,14 +1378,14 @@ public sealed class SupervisionForm : Form
     private async Task LoadHealthAsync()
     {
         var health = await _api.GetSupervisionHealthAsync();
-        _healthApi.Text = Localization.T(health.Api);
-        _healthDatabase.Text = Localization.T(health.Database);
-        _healthSignalR.Text = Localization.T(health.SignalR);
+        _healthApi.Text = HealthLabel(health.Api);
+        _healthDatabase.Text = HealthLabel(health.Database);
+        _healthSignalR.Text = HealthLabel(health.SignalR);
         _healthSessions.Text = health.ActiveSessions.ToString();
 
         var uptime = TimeSpan.FromSeconds(Math.Max(0, health.UptimeSeconds));
         _healthDetails.Text = string.Join(Environment.NewLine,
-            $"{Localization.T("État global")} : {Localization.T(health.Status)}",
+            $"{Localization.T("État global")} : {HealthLabel(health.Status)}",
             $"{Localization.T("Version")} : {health.Version}",
             $"{Localization.T("Fournisseur de base")} : {health.DatabaseProvider}",
             $"{Localization.T("Disponibilité")} : {(int)uptime.TotalDays} j {uptime.Hours} h {uptime.Minutes} min",
@@ -1417,6 +1417,14 @@ public sealed class SupervisionForm : Form
             : local.ToString("dd/MM/yy HH:mm");
     }
 
+    private static string HealthLabel(string status) => status switch
+    {
+        "Healthy" => Localization.T("Opérationnel"),
+        "Degraded" => Localization.T("Dégradé"),
+        "Unhealthy" or "Unavailable" => Localization.T("Indisponible"),
+        _ => status,
+    };
+
     private static string StatusLabel(string status) => status switch
     {
         "Suspended" => Localization.T("Suspendu"),
@@ -1430,6 +1438,15 @@ public sealed class SupervisionForm : Form
         "OrgAdmin" => "Administrateur d'organisation",
         "Supervisor" => "Superviseur",
         "DepartmentManager" => "Responsable de département",
+        _ => "Utilisateur",
+    };
+
+    private static string RoleShortLabel(string roleKey) => roleKey switch
+    {
+        "SuperAdmin" => "Super administrateur",
+        "OrgAdmin" => "Administrateur",
+        "Supervisor" => "Superviseur",
+        "DepartmentManager" => "Responsable",
         _ => "Utilisateur",
     };
 }

@@ -22,8 +22,15 @@ public sealed class DepartmentsForm : Form
     private readonly ListView _list = new ThemedListView();
     private readonly ListView _members = new ThemedListView();
 
+    private static readonly Font EmptyIconFont = new("Segoe UI Symbol", 24f);
+    private static readonly Font EmptySearchFont = new("Segoe MDL2 Assets", 22f);
+
     private TextBox _search = null!;
     private Panel _empty = null!;
+    private Label _emptyIcon = null!;
+    private Label _emptyTitle = null!;
+    private Label _emptySub = null!;
+    private RoundedButton? _emptyAction;
     private Label _count = null!;
     private Label _name = null!;
     private Label _description = null!;
@@ -216,29 +223,40 @@ public sealed class DepartmentsForm : Form
             Visible = false,
             Margin = Padding.Empty,
         };
-        var emptyIcon = Ui.Label("▭", new Font("Segoe UI Symbol", 24f), Palette.Faint, autoSize: false);
-        emptyIcon.TextAlign = ContentAlignment.MiddleCenter;
-        var emptyTitle = Ui.Label("Aucun département", Palette.BodyBold, Palette.Text, autoSize: false);
-        emptyTitle.TextAlign = ContentAlignment.MiddleCenter;
-        var emptySub = Ui.Label("Créez votre premier département pour organiser vos équipes.",
+        _emptyIcon = Ui.Label("▭", EmptyIconFont, Palette.Faint, autoSize: false);
+        _emptyIcon.TextAlign = ContentAlignment.MiddleCenter;
+        _emptyTitle = Ui.Label("Aucun département", Palette.BodyBold, Palette.Text, autoSize: false);
+        _emptyTitle.TextAlign = ContentAlignment.MiddleCenter;
+        _emptySub = Ui.Label("Créez votre premier département pour organiser vos équipes.",
             Palette.Small, Palette.Muted, autoSize: false);
-        emptySub.TextAlign = ContentAlignment.MiddleCenter;
-        _empty.Controls.Add(emptyIcon);
-        _empty.Controls.Add(emptyTitle);
-        _empty.Controls.Add(emptySub);
+        _emptySub.TextAlign = ContentAlignment.MiddleCenter;
+        _empty.Controls.Add(_emptyIcon);
+        _empty.Controls.Add(_emptyTitle);
+        _empty.Controls.Add(_emptySub);
 
         if (_canEdit)
         {
             var emptyCreate = Ui.Primary("Créer un département", 190, 36);
-            emptyCreate.Click += OnCreateClicked;
+            _emptyAction = emptyCreate;
+            emptyCreate.Click += (_, _) =>
+            {
+                if (_search.TextLength > 0)
+                {
+                    _search.Clear();
+                    _search.Focus();
+                    return;
+                }
+
+                OnCreateClicked(this, EventArgs.Empty);
+            };
             _empty.Controls.Add(emptyCreate);
             void LayoutEmpty()
             {
                 var contentHeight = 34 + 6 + 22 + 4 + 18 + 10 + 36;
                 var top = Math.Max(4, (_empty.ClientSize.Height - contentHeight) / 2);
-                emptyIcon.SetBounds(0, top, Math.Max(100, _empty.ClientSize.Width), 34);
-                emptyTitle.SetBounds(8, top + 40, Math.Max(100, _empty.ClientSize.Width - 16), 22);
-                emptySub.SetBounds(8, top + 66, Math.Max(100, _empty.ClientSize.Width - 16), 18);
+                _emptyIcon.SetBounds(0, top, Math.Max(100, _empty.ClientSize.Width), 34);
+                _emptyTitle.SetBounds(8, top + 40, Math.Max(100, _empty.ClientSize.Width - 16), 22);
+                _emptySub.SetBounds(8, top + 66, Math.Max(100, _empty.ClientSize.Width - 16), 18);
                 emptyCreate.Left = Math.Max(0, (_empty.ClientSize.Width - emptyCreate.Width) / 2);
                 emptyCreate.Top = top + 94;
             }
@@ -251,9 +269,9 @@ public sealed class DepartmentsForm : Form
             {
                 var contentHeight = 34 + 6 + 22 + 4 + 18;
                 var top = Math.Max(4, (_empty.ClientSize.Height - contentHeight) / 2);
-                emptyIcon.SetBounds(0, top, Math.Max(100, _empty.ClientSize.Width), 34);
-                emptyTitle.SetBounds(8, top + 40, Math.Max(100, _empty.ClientSize.Width - 16), 22);
-                emptySub.SetBounds(8, top + 66, Math.Max(100, _empty.ClientSize.Width - 16), 18);
+                _emptyIcon.SetBounds(0, top, Math.Max(100, _empty.ClientSize.Width), 34);
+                _emptyTitle.SetBounds(8, top + 40, Math.Max(100, _empty.ClientSize.Width - 16), 22);
+                _emptySub.SetBounds(8, top + 66, Math.Max(100, _empty.ClientSize.Width - 16), 18);
             }
             _empty.Resize += (_, _) => LayoutEmpty();
             LayoutEmpty();
@@ -691,15 +709,38 @@ public sealed class DepartmentsForm : Form
             _suppressSelection = false;
         }
 
-        _count.Text = visible.Count == 1
-            ? Localization.T("1 département")
-            : Localization.F("{0} départements", visible.Count);
-
         var empty = visible.Count == 0;
+        var noResult = empty && filter.Length > 0 && _departments.Count > 0;
+        _count.Text = noResult
+            ? Localization.T("Aucun résultat")
+            : visible.Count == 1
+                ? Localization.T("1 département")
+                : Localization.F("{0} départements", visible.Count);
+
         _list.Visible = !empty;
         _empty.Visible = empty;
         if (empty)
+        {
+            UpdateEmptyState(noResult);
             _empty.BringToFront();
+        }
+    }
+
+    private void UpdateEmptyState(bool noResult)
+    {
+        _emptyIcon.Text = noResult ? "\uE721" : "▭";
+        _emptyIcon.Font = noResult ? EmptySearchFont : EmptyIconFont;
+        _emptyTitle.Text = Localization.T(noResult ? "Aucun résultat" : "Aucun département");
+        _emptySub.Text = Localization.T(noResult
+            ? "Aucun département ne correspond à votre recherche."
+            : "Créez votre premier département pour organiser vos équipes.");
+
+        if (_emptyAction is not null)
+        {
+            _emptyAction.Text = Localization.T(noResult
+                ? "Effacer la recherche"
+                : "Créer un département");
+        }
     }
 
     private void RenderDetail(DepartmentDetailDto detail, DepartmentStatsDto stats)

@@ -20,13 +20,8 @@ public sealed class DepartmentEditForm : Form
     {
         _users = users.ToList();
 
-        Ui.StyleForm(this);
-        FormBorderStyle = FormBorderStyle.FixedDialog;
-        MaximizeBox = false;
-        MinimizeBox = false;
-        ShowInTaskbar = false;
-        StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(560, 430);
+        Ui.StyleDialog(this);
+        ClientSize = new Size(560, 470);
         BackColor = Palette.Background;
         Text = existing == null ? "Nouveau département" : "Modifier le département";
 
