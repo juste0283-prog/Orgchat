@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using OrgChat.Core.Constants;
 using OrgChat.Core.Contracts.Services;
 using OrgChat.Core.Contracts.Users;
@@ -26,6 +27,7 @@ public class UsersController : ControllerBase
     private readonly IAuditService _auditService;
     private readonly IInvitationService _invitationService;
     private readonly IEmailService _emailService;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<UsersController> _logger;
 
     public UsersController(
@@ -35,6 +37,7 @@ public class UsersController : ControllerBase
         IAuditService auditService,
         IInvitationService invitationService,
         IEmailService emailService,
+        IConfiguration configuration,
         ILogger<UsersController> logger)
     {
         _db = db;
@@ -43,6 +46,7 @@ public class UsersController : ControllerBase
         _auditService = auditService;
         _invitationService = invitationService;
         _emailService = emailService;
+        _configuration = configuration;
         _logger = logger;
     }
 
@@ -281,7 +285,7 @@ public class UsersController : ControllerBase
             activationToken = await _invitationService.CreateInvitationAsync(
                 user.Id, InvitationType.AccountActivation, admin.Id);
             invitationExpiresAt = DateTime.UtcNow.AddHours(_invitationService.ExpirationHours);
-            activationLink = $"/api/auth/activate?token={activationToken}";
+            activationLink = BuildInvitationLink(activationToken);
 
             if (_emailService.IsConfigured)
             {
@@ -338,6 +342,18 @@ public class UsersController : ControllerBase
         };
 
         return CreatedAtAction(nameof(GetUser), new { id = user.Id }, result);
+    }
+
+    private string BuildInvitationLink(string token)
+    {
+        // OrgChat:PublicBaseUrl permet de produire des liens valides derrière un
+        // reverse proxy ou lorsque l'API est appelée depuis localhost.
+        var configured = _configuration["OrgChat:PublicBaseUrl"]?.Trim();
+        var baseUrl = !string.IsNullOrWhiteSpace(configured)
+            ? configured.TrimEnd('/')
+            : $"{Request.Scheme}://{Request.Host}";
+
+        return $"{baseUrl}/api/auth/activate?token={Uri.EscapeDataString(token)}";
     }
 
     private async Task<string> GenerateUniqueUsernameAsync(string firstName, string lastName, string email)
@@ -752,7 +768,7 @@ public class UsersController : ControllerBase
         return Ok(new ResetPasswordResultDto
         {
             ResetToken = token,
-            ResetLink = $"/api/auth/activate?token={token}",
+            ResetLink = BuildInvitationLink(token),
             ExpiresAt = expiresAt,
         });
     }
@@ -780,7 +796,7 @@ public class UsersController : ControllerBase
             Email = dto.Email,
             DisplayName = dto.DisplayName,
             ActivationToken = token,
-            ActivationLink = $"/api/auth/activate?token={token}",
+            ActivationLink = BuildInvitationLink(token),
             InvitationExpiresAt = DateTime.UtcNow.AddHours(_invitationService.ExpirationHours),
         };
 
@@ -1024,7 +1040,7 @@ public class UsersController : ControllerBase
                     Email = rowEmail,
                     Username = username,
                     ActivationToken = token,
-                    ActivationLink = $"/api/auth/activate?token={token}",
+                    ActivationLink = BuildInvitationLink(token),
                 });
             }
             catch (Exception ex)

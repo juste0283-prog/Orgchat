@@ -91,6 +91,13 @@ public class UserActivationIntegrationTests : IClassFixture<OrgChatTestFactory>
         var created = (await createdResponse.Content.ReadFromJsonAsync<CreatedUserDto>())!;
 
         Assert.False(string.IsNullOrWhiteSpace(created.Username));
+        Assert.StartsWith("http", created.ActivationLink);
+
+        using var pageClient = NewClient();
+        var activationPageResponse = await pageClient.GetAsync(created.ActivationLink);
+        Assert.Equal(HttpStatusCode.OK, activationPageResponse.StatusCode);
+        Assert.Contains("Activez votre compte",
+            await activationPageResponse.Content.ReadAsStringAsync());
         Assert.Equal("moussa.diop", created.Username);
         Assert.False(string.IsNullOrWhiteSpace(created.ActivationToken));
         Assert.False(string.IsNullOrWhiteSpace(created.ActivationLink));

@@ -159,7 +159,8 @@ messagerie, migrations non destructives et non-régression.
   },
   "OrgChat": {
     "EnableSelfRegistration": false,
-    "InvitationExpirationHours": 72
+    "InvitationExpirationHours": 72,
+    "PublicBaseUrl": ""
   },
   "SmtpSettings": {
     "Host": ""
@@ -168,6 +169,7 @@ messagerie, migrations non destructives et non-régression.
 ```
 
 - `SmtpSettings:Host` vide : aucun e-mail n'est envoyé ; le lien d'activation est copiable depuis l'interface.
+- `OrgChat:PublicBaseUrl` : URL publique du serveur (ex. `https://chat.example.org`) utilisée dans les liens d'activation. Vide = déduite de la requête HTTP.
 - `OrgChat:SuperAdminPassword` : amorçage du compte racine en Production.
 - En production, remplacer impérativement `JwtSettings:Key` et utiliser des variables
   d'environnement pour tous les secrets.

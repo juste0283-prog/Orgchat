@@ -171,6 +171,8 @@ Un script SQL équivalent est fourni dans `scripts/postgresql/init.sql` pour mig
 |---------|----------|-------|---------|-------------|
 | `POST` | `/api/auth/register` | `RegisterRequest` | `AuthResponse` | Inscription libre — **désactivée par défaut** ; ne reste active que si `OrgChat:EnableSelfRegistration=true` (amorce de tests). En production, seuls les administrateurs créent les comptes. |
 | `POST` | `/api/auth/login` | `LoginRequest` | `AuthResponse` | Connexion : vérifie le statut du compte (suspension, désactivation), crée une session persistée (jti), journalise l'audit et l'activité, retourne le JWT |
+| `GET` | `/api/auth/activate?token=…` | — | Page HTML | Page d'activation autonome ouverte par le lien reçu ; elle permet de choisir le mot de passe et appelle le `POST` ci-dessous |
+| `POST` | `/api/auth/activate` | `ActivateAccountRequest` | `AuthResponse` | Consomme le jeton à usage unique, définit le mot de passe, active le compte et ouvre une session |
 | `POST` | `/api/auth/logout` | — | 204 | Révoque la session courante et journalise la déconnexion (authentifié) |
 
 **Flux de connexion (login)** :
@@ -235,6 +237,40 @@ révoquée/expirée.
 - Un `OrgAdmin` ne peut pas modifier un compte `OrgAdmin`, `Supervisor` ou `SuperAdmin`.
 - La suppression est une anonymisation (`Compte supprimé`, identifiants remplacés) afin de conserver les messages et pièces jointes liés.
 - Toute action d'administration est journalisée dans `AuditLogs` (acteur, action, entité, résultat, IP).
+
+### 4.3 Parcours création → activation d'un compte
+
+1. **L'administrateur crée le compte** depuis `Utilisateurs → Créer un compte`.
+   Deux modes explicites sont proposés :
+   - **Lien d'activation** (par défaut) : aucun mot de passe n'est saisi. Le
+     compte est créé avec `MustChangePassword=true` et `ActivatedAt=null` ; il
+     ne peut pas encore se connecter.
+   - **Mot de passe immédiat** : l'administrateur saisit un mot de passe
+     (8 caractères minimum). Le compte est actif immédiatement.
+2. **Le serveur émet un jeton** pour le mode lien : 32 octets aléatoires,
+   stocké uniquement sous forme de hash SHA-256 dans `Invitations`, avec
+   expiration (72 h par défaut) et usage unique. La réponse `CreatedUserDto`
+   contient `activationToken`, `activationLink` (URL absolue) et
+   `invitationExpiresAt`.
+3. **Le client affiche une fenêtre de confirmation** avec l'identifiant, le
+   lien complet, la date d'expiration et un bouton **Copier le lien**.
+   L'administrateur transmet le lien par e-mail ou messagerie interne.
+4. **L'utilisateur ouvre le lien** dans son navigateur (page HTML
+   `/api/auth/activate?token=…`) ou le colle dans le client OrgChat
+   (`Première connexion ? Activer mon compte`). Il choisit son mot de passe.
+5. **Le jeton est consommé**, le mot de passe est haché (PBKDF2-SHA256), le
+   compte est activé (`ActivatedAt`, `MustChangePassword=false`) et une session
+   est créée. Le jeton ne peut plus être réutilisé.
+6. **Compte en attente** : tant que l'étape 4 n'est pas terminée, la liste des
+   utilisateurs affiche une pastille **En attente**. Le menu **Gérer** propose
+   alors **Obtenir un lien d'activation** : le serveur révoque l'ancien jeton
+   (s'il existe) et en émet un nouveau, sans jamais afficher de mot de passe.
+
+**Configuration du lien absolu :** le serveur utilise
+`OrgChat:PublicBaseUrl` s'il est renseigné, sinon `Request.Scheme://Request.Host`.
+En production derrière un reverse proxy, définir par exemple
+`OrgChat__PublicBaseUrl=https://chat.example.org` pour que les liens envoyés
+par e-mail soient accessibles depuis l'extérieur.
 
 **UserDto :**
 ```json

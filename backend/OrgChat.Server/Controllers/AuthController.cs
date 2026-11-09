@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OrgChat.Core.Constants;
@@ -111,6 +112,20 @@ public class AuthController : ControllerBase
             user.Id.ToString(), "Source : auto-inscription (env de test)", "Success", ip, ua);
 
         return Ok(await BuildAuthResponseAsync(user, ip, ua));
+    }
+
+    /// <summary>
+    /// Page HTML autonome ouverte lorsqu'un utilisateur clique sur un lien
+    /// d'activation reçu par e-mail ou messagerie.
+    /// </summary>
+    [HttpGet("activate")]
+    [AllowAnonymous]
+    public IActionResult ActivatePage()
+    {
+        Response.Headers["Referrer-Policy"] = "no-referrer";
+        Response.Headers["Cache-Control"] = "no-store";
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+        return Content(ActivationPageHtml, "text/html; charset=utf-8");
     }
 
     /// <summary>
@@ -331,4 +346,208 @@ public class AuthController : ControllerBase
             Role = _userRoleService.GetPrimaryRole(user),
         };
     }
+
+    private const string ActivationPageHtml = """
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Activation du compte · OrgChat</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --surface: #ffffff;
+      --text: #122033;
+      --muted: #68758a;
+      --accent: #1b65fc;
+      --border: #dfe6f1;
+      --success: #0f9f6e;
+      --danger: #d64545;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background:
+        radial-gradient(circle at 15% 10%, rgba(27, 101, 252, .12), transparent 32rem),
+        radial-gradient(circle at 85% 90%, rgba(15, 159, 110, .10), transparent 30rem),
+        var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    }
+    .card {
+      width: min(440px, 100%);
+      padding: 34px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      box-shadow: 0 24px 60px rgba(16, 34, 60, .12);
+    }
+    .brand {
+      margin-bottom: 28px;
+      color: #0d1f36;
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: .2px;
+    }
+    .brand span { color: var(--muted); font-weight: 500; }
+    h1 { margin: 0 0 8px; font-size: 24px; line-height: 1.2; }
+    p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.55; }
+    label {
+      display: block;
+      margin: 18px 0 7px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    input {
+      width: 100%;
+      height: 45px;
+      padding: 0 14px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: #fbfcfe;
+      color: var(--text);
+      font: inherit;
+      outline: none;
+    }
+    input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(27, 101, 252, .13);
+    }
+    button {
+      width: 100%;
+      height: 46px;
+      margin-top: 20px;
+      border: 0;
+      border-radius: 12px;
+      background: var(--accent);
+      color: #fff;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button:disabled { cursor: wait; opacity: .65; }
+    .message {
+      display: none;
+      margin-top: 16px;
+      padding: 11px 13px;
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .message.error {
+      display: block;
+      border: 1px solid #f3c7c7;
+      background: #fff1f1;
+      color: var(--danger);
+    }
+    .check {
+      display: grid;
+      place-items: center;
+      width: 54px;
+      height: 54px;
+      margin-bottom: 18px;
+      border-radius: 50%;
+      background: #e9f8f2;
+      color: var(--success);
+      font-size: 27px;
+      font-weight: 700;
+    }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="brand">OrgChat <span>· Activation</span></div>
+
+    <section id="form">
+      <h1>Activez votre compte</h1>
+      <p>Choisissez le mot de passe qui protégera votre compte OrgChat.</p>
+      <form id="activation-form">
+        <label for="password">Nouveau mot de passe</label>
+        <input id="password" type="password" minlength="8" autocomplete="new-password" required>
+        <label for="confirm">Confirmer le mot de passe</label>
+        <input id="confirm" type="password" minlength="8" autocomplete="new-password" required>
+        <div id="message" class="message" role="alert"></div>
+        <button id="submit" type="submit">Activer mon compte</button>
+      </form>
+    </section>
+
+    <section id="success" class="hidden">
+      <div class="check">✓</div>
+      <h1>Compte activé</h1>
+      <p id="success-text">Votre compte est prêt. Vous pouvez fermer cette page et vous connecter dans l'application OrgChat.</p>
+    </section>
+  </main>
+
+  <script>
+    (() => {
+      const token = new URLSearchParams(window.location.search).get('token') || '';
+      const form = document.getElementById('activation-form');
+      const password = document.getElementById('password');
+      const confirm = document.getElementById('confirm');
+      const message = document.getElementById('message');
+      const submit = document.getElementById('submit');
+
+      const showError = (text) => {
+        message.textContent = text;
+        message.className = 'message error';
+      };
+
+      if (!token) {
+        showError("Lien d'activation incomplet. Demandez un nouveau lien à votre administrateur.");
+        submit.disabled = true;
+      }
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+
+        if (password.value.length < 8) {
+          showError('Le mot de passe doit contenir au moins 8 caractères.');
+          return;
+        }
+
+        if (password.value !== confirm.value) {
+          showError('Les deux mots de passe ne correspondent pas.');
+          return;
+        }
+
+        message.className = 'message';
+        submit.disabled = true;
+        submit.textContent = 'Activation…';
+
+        try {
+          const response = await fetch(window.location.pathname, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token, newPassword: password.value })
+          });
+          const data = await response.json().catch(() => ({}));
+
+          if (!response.ok) {
+            throw new Error(data.error || "Lien d'activation invalide ou expiré.");
+          }
+
+          document.getElementById('form').classList.add('hidden');
+          document.getElementById('success').classList.remove('hidden');
+          if (data.username) {
+            document.getElementById('success-text').textContent =
+              `Le compte @${data.username} est activé. Vous pouvez fermer cette page et vous connecter dans l'application OrgChat.`;
+          }
+        } catch (error) {
+          showError(error.message || "Impossible d'activer le compte.");
+          submit.disabled = false;
+          submit.textContent = 'Activer mon compte';
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
+""";
 }

@@ -68,6 +68,36 @@ public sealed class ApiClient : IDisposable
     public Task<CreatedUserDto> CreateUserAsync(CreateUserRequest request, CancellationToken ct = default) =>
         SendAsync<CreatedUserDto>(HttpMethod.Post, "api/users", request, auth: true, ct);
 
+    /// <summary>Émet un nouveau lien d'activation pour un compte en attente.</summary>
+    public Task<CreatedUserDto> ResendActivationAsync(int id, CancellationToken ct = default) =>
+        SendAsync<CreatedUserDto>(HttpMethod.Post, $"api/users/{id}/resend-activation", null, auth: true, ct);
+
+    /// <summary>
+    /// Transforme le lien relatif renvoyé par l'API en lien absolu utilisable
+    /// par l'administrateur, avec repli sur le jeton si nécessaire.
+    /// </summary>
+    public string ResolveActivationLink(CreatedUserDto user)
+    {
+        if (!string.IsNullOrWhiteSpace(user.ActivationLink))
+        {
+            if (Uri.TryCreate(user.ActivationLink, UriKind.Absolute, out var absolute))
+                return absolute.ToString();
+
+            return new Uri(
+                new Uri(BaseUrl.TrimEnd('/') + "/"),
+                user.ActivationLink.TrimStart('/')).ToString();
+        }
+
+        if (!string.IsNullOrWhiteSpace(user.ActivationToken))
+        {
+            return new Uri(
+                new Uri(BaseUrl.TrimEnd('/') + "/"),
+                $"api/auth/activate?token={Uri.EscapeDataString(user.ActivationToken)}").ToString();
+        }
+
+        return string.Empty;
+    }
+
     public Task<UserDto> UpdateUserRoleAsync(int id, UpdateUserRoleRequest request, CancellationToken ct = default) =>
         SendAsync<UserDto>(HttpMethod.Put, $"api/users/{id}/role", request, auth: true, ct);
 

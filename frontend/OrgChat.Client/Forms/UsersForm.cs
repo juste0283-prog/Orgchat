@@ -113,7 +113,8 @@ public sealed class UsersForm : Form
                         u.Username.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
                         u.DisplayName.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
                         u.Email.Contains(filter, StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(u => u.IsActive)
+            .OrderByDescending(u => u.MustChangePassword && u.ActivatedAt == null)
+            .ThenByDescending(u => u.IsActive)
             .ThenBy(u => u.DisplayName)
             .ToList();
 
@@ -127,14 +128,19 @@ public sealed class UsersForm : Form
             _listPanel.Controls.Add(empty);
         }
 
-        _subtitle.Text = Localization.F("{0} compte(s) · {1} actif(s)",
-            _users.Count, _users.Count(u => u.IsActive));
+        var pendingCount = _users.Count(u => u.MustChangePassword && u.ActivatedAt == null);
+        _subtitle.Text = pendingCount > 0
+            ? Localization.F("{0} compte(s) · {1} actif(s) · {2} en attente",
+                _users.Count, _users.Count(u => u.IsActive && !(u.MustChangePassword && u.ActivatedAt == null)), pendingCount)
+            : Localization.F("{0} compte(s) · {1} actif(s)",
+                _users.Count, _users.Count(u => u.IsActive));
         _listPanel.ResumeLayout();
         ResizeRows();
     }
 
     private Control BuildUserRow(UserDto user)
     {
+        var pendingActivation = user.MustChangePassword && user.ActivatedAt == null;
         var row = new RoundedPanel
         {
             Height = 72,
@@ -165,8 +171,13 @@ public sealed class UsersForm : Form
             right.Controls.Add(manage);
         }
 
-        var state = Ui.Pill(user.IsActive ? Localization.T("Actif") : Localization.T("Inactif"),
-            user.IsActive ? Palette.Success : Palette.Faint);
+        var state = Ui.Pill(
+            pendingActivation
+                ? Localization.T("En attente")
+                : user.IsActive ? Localization.T("Actif") : Localization.T("Inactif"),
+            pendingActivation
+                ? Palette.Warning
+                : user.IsActive ? Palette.Success : Palette.Faint);
         state.Margin = new Padding(8, 0, 0, 0);
         right.Controls.Add(state);
 
@@ -182,7 +193,7 @@ public sealed class UsersForm : Form
             DisplayName = user.DisplayName,
             Seed = user.Id.ToString(),
             ShowStatus = true,
-            Online = user.IsActive,
+            Online = user.IsOnline,
             Location = new Point(14, 15),
             Size = new Size(42, 42)
         };
@@ -233,6 +244,15 @@ public sealed class UsersForm : Form
     private ContextMenuStrip BuildAdminMenu(UserDto user)
     {
         var menu = new ContextMenuStrip();
+
+        if (user.MustChangePassword && user.ActivatedAt == null)
+        {
+            var activationItem = new ToolStripMenuItem(
+                Localization.T("Obtenir un lien d'activation"));
+            activationItem.Click += async (_, _) => await ShowActivationLinkAsync(user);
+            menu.Items.Add(activationItem);
+            menu.Items.Add(new ToolStripSeparator());
+        }
 
         var roleItem = new ToolStripMenuItem(
             user.IsAdmin ? Localization.T("Rétrograder en utilisateur") : Localization.T("Promouvoir administrateur"));
@@ -368,6 +388,23 @@ public sealed class UsersForm : Form
                 await _api.ReactivateUserAsync(user.Id);
 
             _errorLabel.Text = string.Empty;
+        });
+    }
+
+    private async Task ShowActivationLinkAsync(UserDto user)
+    {
+        if (_busy)
+            return;
+
+        await RunAdminActionAsync(async () =>
+        {
+            var created = await _api.ResendActivationAsync(user.Id);
+            UseWaitCursor = false;
+            using var dialog = new AccountCreatedForm(
+                created,
+                _api.ResolveActivationLink(created),
+                directPassword: false);
+            dialog.ShowDialog(this);
         });
     }
 
