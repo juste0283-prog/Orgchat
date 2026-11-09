@@ -98,6 +98,10 @@ public class SupervisionController : ControllerBase
     private static SupervisionUserDto MapUser(User user, DateTime now, ISet<int> online)
     {
         var role = PrimaryRole(user);
+        var membership = user.DepartmentMembers
+            .OrderByDescending(m => m.IsPrimary)
+            .ThenBy(m => m.DepartmentId)
+            .FirstOrDefault();
         return new SupervisionUserDto
         {
             Id = user.Id,
@@ -106,7 +110,7 @@ public class SupervisionController : ControllerBase
             Email = user.Email,
             JobTitle = user.JobTitle,
             Role = role,
-            DepartmentName = user.Department?.Name,
+            DepartmentName = user.Department?.Name ?? membership?.Department?.Name,
             Status = EffectiveStatus(user, now),
             IsActive = user.IsActive && user.Status != AccountStatus.Disabled,
             IsOnline = online.Contains(user.Id),
@@ -188,6 +192,8 @@ public class SupervisionController : ControllerBase
             .Include(u => u.UserRoles)
                 .ThenInclude(ur => ur.Role)
             .Include(u => u.Department)
+            .Include(u => u.DepartmentMembers)
+                .ThenInclude(m => m.Department)
             .AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(search))
@@ -205,7 +211,11 @@ public class SupervisionController : ControllerBase
             query = query.Where(u => u.UserRoles.Any(ur => ur.Role.Key == role));
 
         if (departmentId is > 0)
-            query = query.Where(u => u.DepartmentId == departmentId);
+        {
+            query = query.Where(u =>
+                u.DepartmentId == departmentId ||
+                u.DepartmentMembers.Any(m => m.DepartmentId == departmentId));
+        }
 
         if (!string.IsNullOrWhiteSpace(status) &&
             Enum.TryParse<AccountStatus>(status, ignoreCase: true, out var parsed))

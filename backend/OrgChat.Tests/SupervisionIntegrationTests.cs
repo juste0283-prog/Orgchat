@@ -144,6 +144,43 @@ public class SupervisionIntegrationTests : IClassFixture<OrgChatTestFactory>
     }
 
     [Fact]
+    public async Task SupervisionUsers_Expose_Department_From_Secondary_Membership()
+    {
+        var orgAdmin = await CreateUserWithRoleAsync(RoleKeys.OrgAdmin);
+        using var adminClient = WithToken(NewClient(), orgAdmin.Token);
+
+        var targetUsername = $"membre{NewSuffix()}";
+        var target = await RegisterAsync(targetUsername);
+        var departmentName = $"Membres {NewSuffix()}";
+
+        var create = await adminClient.PostAsJsonAsync("/api/departments", new DepartmentCreateRequest
+        {
+            Name = departmentName,
+        });
+        create.EnsureSuccessStatusCode();
+        var department = await create.Content.ReadFromJsonAsync<DepartmentDto>();
+        Assert.NotNull(department);
+
+        // Affectation secondaire : User.DepartmentId reste null, l'affichage
+        // doit néanmoins provenir de DepartmentMembers.
+        var add = await adminClient.PostAsJsonAsync(
+            $"/api/departments/{department!.Id}/members",
+            new AddDepartmentMemberRequest { UserId = target.UserId, IsPrimary = false });
+        Assert.Equal(HttpStatusCode.NoContent, add.StatusCode);
+
+        var page = await adminClient.GetFromJsonAsync<PagedResultDto<SupervisionUserDto>>(
+            $"/api/supervision/users?search={Uri.EscapeDataString(targetUsername)}");
+        Assert.NotNull(page);
+        var member = Assert.Single(page!.Items);
+        Assert.Equal(departmentName, member.DepartmentName);
+
+        var filtered = await adminClient.GetFromJsonAsync<PagedResultDto<SupervisionUserDto>>(
+            $"/api/supervision/users?departmentId={department.Id}&pageSize=100");
+        Assert.NotNull(filtered);
+        Assert.Contains(filtered!.Items, user => user.Id == target.UserId);
+    }
+
+    [Fact]
     public async Task Audit_Logs_Are_Readable_And_Filterable()
     {
         var orgAdmin = await CreateUserWithRoleAsync(RoleKeys.OrgAdmin);

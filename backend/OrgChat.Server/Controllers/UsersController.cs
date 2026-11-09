@@ -84,6 +84,8 @@ public class UsersController : ControllerBase
             .Include(u => u.UserRoles)
             .ThenInclude(ur => ur.Role)
             .Include(u => u.Department)
+            .Include(u => u.DepartmentMembers)
+            .ThenInclude(m => m.Department)
             .AsQueryable();
 
         // Isolation stricte : un non-SuperAdmin ne voit que son organisation.
@@ -106,7 +108,11 @@ public class UsersController : ControllerBase
         }
 
         if (departmentId != null)
-            query = query.Where(u => u.DepartmentId == departmentId.Value);
+        {
+            query = query.Where(u =>
+                u.DepartmentId == departmentId.Value ||
+                u.DepartmentMembers.Any(m => m.DepartmentId == departmentId.Value));
+        }
 
         if (!string.IsNullOrWhiteSpace(role) && RoleKeys.IsValid(role))
             query = query.Where(u => u.UserRoles.Any(ur => ur.Role.Key == role));
@@ -1094,28 +1100,36 @@ public class UsersController : ControllerBase
         CreatedAt = activity.CreatedAt,
     };
 
-    private static UserDto MapUser(User user) => new()
+    private static UserDto MapUser(User user)
     {
-        Id = user.Id,
-        Username = user.Username,
-        Email = user.Email,
-        DisplayName = user.DisplayName,
-        FirstName = user.FirstName,
-        LastName = user.LastName,
-        JobTitle = user.JobTitle,
-        DepartmentId = user.DepartmentId,
-        DepartmentName = user.Department?.Name,
-        OrganizationId = user.OrganizationId,
-        Role = user.UserRoles.Count == 0
-            ? RoleKeys.User
-            : RoleKeys.HighestRole(user.UserRoles.Select(ur => ur.Role.Key)),
-        IsActive = user.IsActive,
-        Status = user.Status.ToString(),
-        SuspendedUntil = user.SuspendedUntil,
-        SuspensionReason = user.SuspensionReason,
-        MustChangePassword = user.MustChangePassword,
-        ActivatedAt = user.ActivatedAt,
-        LastLoginAt = user.LastLoginAt,
-        IsOnline = ChatHub.OnlineUserIds().Contains(user.Id),
-    };
+        var membership = user.DepartmentMembers
+            .OrderByDescending(m => m.IsPrimary)
+            .ThenBy(m => m.DepartmentId)
+            .FirstOrDefault();
+
+        return new UserDto
+        {
+            Id = user.Id,
+            Username = user.Username,
+            Email = user.Email,
+            DisplayName = user.DisplayName,
+            FirstName = user.FirstName,
+            LastName = user.LastName,
+            JobTitle = user.JobTitle,
+            DepartmentId = user.DepartmentId ?? membership?.DepartmentId,
+            DepartmentName = user.Department?.Name ?? membership?.Department?.Name,
+            OrganizationId = user.OrganizationId,
+            Role = user.UserRoles.Count == 0
+                ? RoleKeys.User
+                : RoleKeys.HighestRole(user.UserRoles.Select(ur => ur.Role.Key)),
+            IsActive = user.IsActive,
+            Status = user.Status.ToString(),
+            SuspendedUntil = user.SuspendedUntil,
+            SuspensionReason = user.SuspensionReason,
+            MustChangePassword = user.MustChangePassword,
+            ActivatedAt = user.ActivatedAt,
+            LastLoginAt = user.LastLoginAt,
+            IsOnline = ChatHub.OnlineUserIds().Contains(user.Id),
+        };
+    }
 }

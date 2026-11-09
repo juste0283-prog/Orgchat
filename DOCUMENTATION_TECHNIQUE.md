@@ -868,8 +868,8 @@ départements, supervision, audit), sans réécrire la messagerie existante.
   isolation par organisation pour les non-SuperAdmin.
 - ✅ **Frontend** : tableau de bord par rôle, module de supervision (7 pages, graphiques
   dessinés, tableaux thémés, filtres, pagination), profil/mot de passe, gestion des comptes.
-- ✅ **Tests** : 35 tests (authentification, comptes, RBAC, isolation, supervision, audit,
-  notifications, messagerie, migrations non destructives).
+- ✅ **Tests** : 36 tests (authentification, comptes, RBAC, isolation, supervision, audit,
+  notifications, messagerie, affectations départementales, migrations non destructives).
 
 ### 16.2 Matrice des rôles
 
