@@ -9,14 +9,22 @@ public class MessageConfiguration : IEntityTypeConfiguration<Message>
     public void Configure(EntityTypeBuilder<Message> builder)
     {
         builder.ToTable("Messages");
+
         builder.Property(m => m.Content).IsRequired();
-        builder.HasIndex(m => m.ConversationId);
+
+        builder.Property(m => m.IsDeleted)
+            .IsRequired()
+            .HasDefaultValue(false);
+
         builder.HasIndex(m => m.SenderId);
+        // Index composite : historique d'une conversation trié par date.
         builder.HasIndex(m => new { m.ConversationId, m.CreatedAt });
+
         builder.HasOne(m => m.Conversation)
             .WithMany(c => c.Messages)
             .HasForeignKey(m => m.ConversationId)
             .OnDelete(DeleteBehavior.Cascade);
+
         builder.HasOne(m => m.Sender)
             .WithMany(u => u.SentMessages)
             .HasForeignKey(m => m.SenderId)

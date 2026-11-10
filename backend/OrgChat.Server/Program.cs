@@ -11,7 +11,7 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") ?? "Data Source=OrgChat.db";
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") ?? "Data Source=OrgChat.db;Foreign Keys=True";
 builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlite(connectionString));
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

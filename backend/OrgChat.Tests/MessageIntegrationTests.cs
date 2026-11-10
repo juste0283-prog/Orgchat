@@ -114,6 +114,15 @@ public class MessageIntegrationTests : IClassFixture<OrgChatTestFactory>
         Assert.Equal(3, result.Items.Count);
         Assert.True(result.HasNextPage);
         Assert.Equal(5, result.TotalCount);
+
+        var nextPageResponse = await _client.GetAsync(
+            $"/api/conversations/{_conversationId}/messages?page=2&pageSize=3");
+        Assert.Equal(HttpStatusCode.OK, nextPageResponse.StatusCode);
+        var nextPage = await nextPageResponse.Content.ReadFromJsonAsync<PagedMessageResponse>();
+        Assert.NotNull(nextPage);
+        Assert.Equal(2, nextPage.Items.Count);
+        Assert.Empty(result.Items.Select(message => message.Id)
+            .Intersect(nextPage.Items.Select(message => message.Id)));
     }
 
     [Fact]
@@ -131,4 +140,3 @@ public class MessageIntegrationTests : IClassFixture<OrgChatTestFactory>
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 }
-
