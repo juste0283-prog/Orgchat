@@ -1,4 +1,5 @@
 using OrgChat.Client.Models;
+using OrgChat.Client.Services;
 
 namespace OrgChat.Client.UI;
 
@@ -96,7 +97,7 @@ public sealed class UserSelectRow : Control
 
             if (_checked)
             {
-                using var pen = new Pen(Color.White, 2f);
+                using var pen = new Pen(Palette.OnAccent, 2f);
                 g.DrawLines(pen, new[]
                 {
                     new PointF(indicator.X + 4, indicator.Y + 9),
@@ -112,7 +113,9 @@ public sealed class UserSelectRow : Control
             Palette.BodyBold, new Rectangle(92, 10, Math.Max(40, Width - 120), 18), Palette.Text,
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
 
-        var subtitle = User.IsAdmin ? $"@{User.Username} · Administrateur" : $"@{User.Username}";
+        var subtitle = User.IsAdmin
+            ? $"@{User.Username} · {Localization.T("Administrateur")}"
+            : $"@{User.Username}";
         TextRenderer.DrawText(g, subtitle, Palette.Small,
             new Rectangle(92, 30, Math.Max(40, Width - 120), 16),
             User.IsAdmin ? Palette.Warning : Palette.Muted,

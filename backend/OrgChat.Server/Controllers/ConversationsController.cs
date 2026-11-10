@@ -141,6 +141,10 @@ public class ConversationsController : ControllerBase
                     await _hub.Clients.Group(ChatHub.UserGroup(participantId))
                         .SendAsync("ConversationDeleted", deleted);
                 }
+
+                // La conversation n'existe plus : toutes ses connexions de groupe
+                // doivent être nettoyées.
+                await RemoveConversationGroupAsync(id, participantIds);
             }
             else
             {
@@ -150,11 +154,11 @@ public class ConversationsController : ControllerBase
 
                 // Les autres participants voient la liste des membres se mettre à jour.
                 await BroadcastConversationUpdatedAsync(id, participantIds.Where(p => p != userId));
-            }
 
-            // Dans tous les cas, la connexion SignalR du partant ne doit plus
-            // recevoir les messages de la conversation.
-            await RemoveConversationGroupAsync(id, participantIds);
+                // Seule la connexion du partant quitte le groupe : les autres
+                // participants doivent continuer à recevoir les messages.
+                await ChatHub.RemoveUserFromGroupAsync(_hub, userId, id);
+            }
 
             return NoContent();
         }

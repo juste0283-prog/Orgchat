@@ -6,18 +6,19 @@ using OrgChat.Client.UI;
 
 namespace OrgChat.Client.Forms;
 
-/// <summary>Écran d'authentification (connexion et inscription).</summary>
+/// <summary>Écran d'authentification (connexion et activation première connexion).</summary>
 public sealed class LoginForm : Form
 {
     private readonly ApiClient _api;
     private readonly ClientOptions _options;
     private readonly Action<AuthResponse> _onAuthenticated;
+    private readonly Action? _settingsChanged;
 
     private readonly RoundedPanel _card;
     private readonly Panel _rightPanel;
 
     private readonly List<Control> _inputs = new();
-    private bool _registerMode;
+    private bool _activationMode;
     private bool _busy;
     private string _serverUrl;
 
@@ -26,20 +27,21 @@ public sealed class LoginForm : Form
     private LinkLabel? _switchLink;
     private TextBox? _usernameBox;
     private TextBox? _passwordBox;
-    private TextBox? _displayNameBox;
-    private TextBox? _emailBox;
+    private TextBox? _tokenBox;
     private TextBox? _confirmBox;
     private TextBox? _serverBox;
 
-    public LoginForm(ApiClient api, ClientOptions options, Action<AuthResponse> onAuthenticated)
+    public LoginForm(ApiClient api, ClientOptions options, Action<AuthResponse> onAuthenticated,
+        Action? settingsChanged = null)
     {
         _api = api;
         _options = options;
         _onAuthenticated = onAuthenticated;
+        _settingsChanged = settingsChanged;
         _serverUrl = api.BaseUrl;
 
         Text = "OrgChat · Connexion";
-        ClientSize = new Size(1020, 650);
+        ClientSize = new Size(1020, 700);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
@@ -85,8 +87,9 @@ public sealed class LoginForm : Form
 
         BuildCard();
         CenterCard();
+        Localization.Apply(this);
 
-        Shown += (_, _) => _usernameBox?.Focus();
+        Shown += (_, _) => (_activationMode ? _tokenBox : _usernameBox)?.Focus();
     }
 
     private static Panel BuildHero()
@@ -100,7 +103,7 @@ public sealed class LoginForm : Form
         var mark = new BrandMark { Location = new Point(54, 54) };
         hero.Controls.Add(mark);
 
-        var brand = Ui.Label("OrgChat", Palette.Hero, Palette.Text, autoSize: false);
+        var brand = Ui.Label("OrgChat", Palette.Hero, Palette.HeroText, autoSize: false);
         brand.Location = new Point(52, 128);
         brand.Size = new Size(380, 52);
         hero.Controls.Add(brand);
@@ -108,7 +111,7 @@ public sealed class LoginForm : Form
         var tagline = Ui.Label(
             "La messagerie interne de votre organisation, sur le réseau local ou via VPN.",
             new Font("Segoe UI", 11.5f),
-            Palette.Muted,
+            Palette.HeroMuted,
             autoSize: false);
         tagline.Location = new Point(54, 184);
         tagline.Size = new Size(360, 64);
@@ -128,14 +131,14 @@ public sealed class LoginForm : Form
             marker.Location = new Point(54, y);
             hero.Controls.Add(marker);
 
-            var label = Ui.Label(text, Palette.Body, Palette.Text);
+            var label = Ui.Label(text, Palette.Body, Palette.HeroText);
             label.Location = new Point(76, y);
             hero.Controls.Add(label);
 
             y += 34;
         }
 
-        var version = Ui.Label("OrgChat v1.0 · LAN / VPN", Palette.Small, Palette.Faint);
+        var version = Ui.Label("OrgChat v1.0 · LAN / VPN", Palette.Small, Palette.HeroMuted);
         version.Location = new Point(54, 588);
         hero.Controls.Add(version);
 
@@ -164,7 +167,7 @@ public sealed class LoginForm : Form
         var width = _card.Width - left * 2;
         var y = 26;
 
-        var title = Ui.Label(_registerMode ? "Créer un compte" : "Bienvenue", new Font("Segoe UI", 22f, FontStyle.Bold),
+        var title = Ui.Label(_activationMode ? "Première connexion" : "Bienvenue", new Font("Segoe UI", 22f, FontStyle.Bold),
             Palette.Text, autoSize: false);
         title.Location = new Point(left, y);
         title.Size = new Size(width, 38);
@@ -172,8 +175,8 @@ public sealed class LoginForm : Form
         y += 36;
 
         var subtitle = Ui.Label(
-            _registerMode
-                ? "Rejoignez votre organisation en quelques secondes."
+            _activationMode
+                ? "Définissez votre mot de passe avec le lien d'activation fourni par votre administrateur."
                 : "Connectez-vous à votre espace OrgChat.",
             Palette.Body,
             Palette.Muted,
@@ -183,18 +186,16 @@ public sealed class LoginForm : Form
         _card.Controls.Add(subtitle);
         y += 34;
 
-        if (_registerMode)
+        if (_activationMode)
         {
-            _displayNameBox = AddField(left, width, ref y, "Nom affiché", "Ex. Awa Diallo");
-            _usernameBox = AddField(left, width, ref y, "Nom d'utilisateur", "Identifiant de connexion");
-            _emailBox = AddField(left, width, ref y, "Adresse e-mail", "vous@organisation.local");
-            _passwordBox = AddField(left, width, ref y, "Mot de passe", "6 caractères minimum", password: true);
+            _tokenBox = AddField(left, width, ref y, "Jeton d'activation", "Collez le lien ou le jeton reçu", placeholderSize: 42);
+            _passwordBox = AddField(left, width, ref y, "Nouveau mot de passe", "8 caractères minimum", password: true);
             _confirmBox = AddField(left, width, ref y, "Confirmer le mot de passe", "Répétez le mot de passe", password: true);
+            _usernameBox = null;
         }
         else
         {
-            _displayNameBox = null;
-            _emailBox = null;
+            _tokenBox = null;
             _confirmBox = null;
             _usernameBox = AddField(left, width, ref y, "Nom d'utilisateur", "Votre identifiant");
             _passwordBox = AddField(left, width, ref y, "Mot de passe", "Votre mot de passe", password: true);
@@ -206,7 +207,7 @@ public sealed class LoginForm : Form
         _card.Controls.Add(_errorLabel);
         y += 34;
 
-        _submitButton = Ui.Primary(_registerMode ? "Créer mon compte" : "Se connecter", width, 46);
+        _submitButton = Ui.Primary(_activationMode ? "Activer et se connecter" : "Se connecter", width, 46);
         _submitButton.Location = new Point(left, y);
         _submitButton.Click += OnSubmitClicked;
         _card.Controls.Add(_submitButton);
@@ -215,7 +216,7 @@ public sealed class LoginForm : Form
 
         _switchLink = new LinkLabel
         {
-            Text = _registerMode ? "Déjà un compte ? Se connecter" : "Pas encore de compte ? Créer un compte",
+            Text = _activationMode ? "Déjà activé ? Se connecter" : "Première connexion ? Activer mon compte",
             Font = Palette.Body,
             LinkColor = Palette.Accent,
             ActiveLinkColor = Palette.AccentHover,
@@ -254,12 +255,31 @@ public sealed class LoginForm : Form
         _card.Controls.Add(serverField);
         y += 52;
 
+        var settingsLink = new LinkLabel
+        {
+            Text = "Langue et thème",
+            Font = Palette.Small,
+            LinkColor = Palette.Accent,
+            ActiveLinkColor = Palette.AccentHover,
+            VisitedLinkColor = Palette.Accent,
+            LinkBehavior = LinkBehavior.HoverUnderline,
+            BackColor = Color.Transparent,
+            Location = new Point(left, y),
+            Size = new Size(width, 22),
+            TabStop = true
+        };
+        settingsLink.LinkArea = new LinkArea(0, settingsLink.Text.Length);
+        settingsLink.LinkClicked += OnSettingsClicked;
+        _card.Controls.Add(settingsLink);
+        y += 26;
+
         _card.Height = y + 18;
         _card.ResumeLayout();
+        Localization.Apply(_card);
         CenterCard();
     }
 
-    private TextBox AddField(int left, int width, ref int y, string label, string placeholder, bool password = false)
+    private TextBox AddField(int left, int width, ref int y, string label, string placeholder, bool password = false, int placeholderSize = 42)
     {
         var caption = Ui.Label(label, Palette.Small, Palette.Muted);
         caption.Location = new Point(left, y);
@@ -281,9 +301,41 @@ public sealed class LoginForm : Form
         if (_busy)
             return;
 
-        _registerMode = !_registerMode;
+        _activationMode = !_activationMode;
         BuildCard();
-        _usernameBox?.Focus();
+        (_activationMode ? _tokenBox : _usernameBox)?.Focus();
+    }
+
+    private void OnSettingsClicked(object? sender, LinkLabelLinkClickedEventArgs e)
+    {
+        using (var dialog = new SettingsForm())
+        {
+            if (dialog.ShowDialog(this) != DialogResult.OK)
+                return;
+        }
+
+        _settingsChanged?.Invoke();
+    }
+
+    private static string ExtractToken(string raw)
+    {
+        var value = (raw ?? string.Empty).Trim();
+        if (string.IsNullOrEmpty(value))
+            return value;
+
+        // Accepte un jeton nu ou un lien complet contenant `?token=...`.
+        var tokenIndex = value.IndexOf("token=", StringComparison.OrdinalIgnoreCase);
+        if (tokenIndex >= 0)
+        {
+            var token = value[(tokenIndex + "token=".Length)..];
+            token = token.Split('&', '#')[0].Trim();
+            return Uri.UnescapeDataString(token);
+        }
+
+        if (value.Contains(' ') || value.Contains(Environment.NewLine))
+            return value.Split(new[] { ' ', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? value;
+
+        return value;
     }
 
     private async void OnSubmitClicked(object? sender, EventArgs e)
@@ -294,50 +346,40 @@ public sealed class LoginForm : Form
         var server = _serverBox?.Text.Trim() ?? _serverUrl;
         if (string.IsNullOrWhiteSpace(server))
         {
-            ShowError("Indiquez l'adresse du serveur OrgChat.");
+            ShowError(Localization.T("Indiquez l'adresse du serveur OrgChat."));
             return;
         }
 
-        var username = _usernameBox?.Text.Trim() ?? string.Empty;
-        var password = _passwordBox?.Text ?? string.Empty;
-
-        if (string.IsNullOrWhiteSpace(username))
+        if (_activationMode)
         {
-            ShowError("Le nom d'utilisateur est requis.");
-            _usernameBox?.Focus();
-            return;
-        }
-
-        if (string.IsNullOrEmpty(password))
-        {
-            ShowError("Le mot de passe est requis.");
-            _passwordBox?.Focus();
-            return;
-        }
-
-        if (_registerMode)
-        {
-            var email = _emailBox?.Text.Trim() ?? string.Empty;
-            var displayName = _displayNameBox?.Text.Trim() ?? string.Empty;
+            var token = ExtractToken(_tokenBox?.Text ?? string.Empty);
+            var password = _passwordBox?.Text ?? string.Empty;
             var confirm = _confirmBox?.Text ?? string.Empty;
 
-            if (!email.Contains('@') || email.StartsWith('@') || email.EndsWith('@'))
+            if (string.IsNullOrWhiteSpace(token))
             {
-                ShowError("Saisissez une adresse e-mail valide.");
-                _emailBox?.Focus();
+                ShowError(Localization.T("Le jeton d'activation est requis."));
+                _tokenBox?.Focus();
                 return;
             }
 
-            if (password.Length < 6)
+            if (string.IsNullOrEmpty(password))
             {
-                ShowError("Le mot de passe doit contenir au moins 6 caractères.");
+                ShowError(Localization.T("Le mot de passe est requis."));
+                _passwordBox?.Focus();
+                return;
+            }
+
+            if (password.Length < 8)
+            {
+                ShowError(Localization.T("Le nouveau mot de passe doit contenir au moins 8 caractères."));
                 _passwordBox?.Focus();
                 return;
             }
 
             if (!string.Equals(password, confirm, StringComparison.Ordinal))
             {
-                ShowError("Les deux mots de passe ne correspondent pas.");
+                ShowError(Localization.T("Les deux mots de passe ne correspondent pas."));
                 _confirmBox?.Focus();
                 return;
             }
@@ -346,16 +388,31 @@ public sealed class LoginForm : Form
             {
                 _api.SetBaseUrl(server);
                 _serverUrl = _api.BaseUrl;
-                var auth = await _api.RegisterAsync(new RegisterRequest
+                var auth = await _api.ActivateAsync(new ActivateAccountRequest
                 {
-                    Username = username,
-                    Email = email,
-                    DisplayName = string.IsNullOrWhiteSpace(displayName) ? username : displayName,
-                    Password = password
+                    Token = token,
+                    NewPassword = password
                 });
                 CompleteAuthentication(auth);
             });
 
+            return;
+        }
+
+        var username = _usernameBox?.Text.Trim() ?? string.Empty;
+        var loginPassword = _passwordBox?.Text ?? string.Empty;
+
+        if (string.IsNullOrWhiteSpace(username))
+        {
+            ShowError(Localization.T("Le nom d'utilisateur est requis."));
+            _usernameBox?.Focus();
+            return;
+        }
+
+        if (string.IsNullOrEmpty(loginPassword))
+        {
+            ShowError(Localization.T("Le mot de passe est requis."));
+            _passwordBox?.Focus();
             return;
         }
 
@@ -366,7 +423,7 @@ public sealed class LoginForm : Form
             var auth = await _api.LoginAsync(new LoginRequest
             {
                 Username = username,
-                Password = password
+                Password = loginPassword
             });
             CompleteAuthentication(auth);
         });
@@ -406,9 +463,9 @@ public sealed class LoginForm : Form
         if (_submitButton is not null)
         {
             _submitButton.Enabled = !busy;
-            _submitButton.Text = busy
-                ? (_registerMode ? "Création du compte…" : "Connexion…")
-                : (_registerMode ? "Créer mon compte" : "Se connecter");
+            _submitButton.Text = Localization.T(busy
+                ? (_activationMode ? "Activation…" : "Connexion…")
+                : (_activationMode ? "Activer et se connecter" : "Se connecter"));
         }
 
         if (_switchLink is not null)
@@ -432,7 +489,7 @@ public sealed class LoginForm : Form
 
     public void ResetForLogout()
     {
-        _registerMode = false;
+        _activationMode = false;
         _serverUrl = _api.BaseUrl;
         BuildCard();
         ShowError(string.Empty);
@@ -456,8 +513,8 @@ public sealed class LoginForm : Form
             var rect = ClientRectangle;
 
             using (var gradient = new LinearGradientBrush(rect,
-                       ColorTranslator.FromHtml("#101B2E"),
-                       ColorTranslator.FromHtml("#0B0F15"), 55f))
+                       Palette.HeroStart,
+                       Palette.HeroEnd, 55f))
             {
                 g.FillRectangle(gradient, rect);
             }
@@ -470,7 +527,7 @@ public sealed class LoginForm : Form
                 g.DrawEllipse(pen, Width - 120, 120, 280, 280);
             }
 
-            using var dot = new SolidBrush(Color.FromArgb(18, Color.White));
+            using var dot = new SolidBrush(Palette.WithAlpha(Palette.HeroText, 18));
             for (var x = 30; x < Width; x += 34)
             {
                 for (var y = 30; y < Height; y += 34)

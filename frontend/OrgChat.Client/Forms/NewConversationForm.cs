@@ -142,6 +142,7 @@ public sealed class NewConversationForm : Form
 
         RebuildRows();
         UpdateModeVisuals();
+        Localization.Apply(this);
     }
 
     public ConversationDto? CreatedConversation { get; private set; }
@@ -164,15 +165,15 @@ public sealed class NewConversationForm : Form
     {
         ApplyToggle(_privateButton, _privateMode);
         ApplyToggle(_groupButton, !_privateMode);
-        _hintLabel.Text = _privateMode
+        _hintLabel.Text = Localization.T(_privateMode
             ? "Sélectionnez un collègue pour démarrer une discussion privée."
-            : "Sélectionnez au moins un collègue. Le groupe inclura votre compte.";
+            : "Sélectionnez au moins un collègue. Le groupe inclura votre compte.");
     }
 
     private static void ApplyToggle(RoundedButton button, bool active)
     {
         button.Outline = !active;
-        button.ForeColor = active ? Color.White : Palette.Muted;
+        button.ForeColor = active ? Palette.OnAccent : Palette.Muted;
         button.Invalidate();
     }
 
@@ -204,7 +205,7 @@ public sealed class NewConversationForm : Form
 
         if (_rows.Count == 0)
         {
-            var empty = Ui.Label("Aucun collègue trouvé.", Palette.Small, Palette.Faint);
+            var empty = Ui.Label(Localization.T("Aucun collègue trouvé."), Palette.Small, Palette.Faint);
             empty.Margin = new Padding(4, 14, 0, 0);
             _usersPanel.Controls.Add(empty);
         }
@@ -259,7 +260,7 @@ public sealed class NewConversationForm : Form
         {
             if (_selectedPrivateId is null)
             {
-                ShowError("Sélectionnez le collègue avec qui discuter.");
+                ShowError(Localization.T("Sélectionnez le collègue avec qui discuter."));
                 return;
             }
 
@@ -271,14 +272,14 @@ public sealed class NewConversationForm : Form
             var title = _titleBox.Text.Trim();
             if (string.IsNullOrWhiteSpace(title))
             {
-                ShowError("Donnez un nom au groupe.");
+                ShowError(Localization.T("Donnez un nom au groupe."));
                 _titleBox.Focus();
                 return;
             }
 
             if (_selectedGroupIds.Count == 0)
             {
-                ShowError("Sélectionnez au moins un collègue pour le groupe.");
+                ShowError(Localization.T("Sélectionnez au moins un collègue pour le groupe."));
                 return;
             }
 
@@ -312,7 +313,7 @@ public sealed class NewConversationForm : Form
     {
         _createButton.Enabled = !busy;
         _cancelButton.Enabled = !busy;
-        _createButton.Text = busy ? "Création…" : "Créer";
+        _createButton.Text = Localization.T(busy ? "Création…" : "Créer");
 
         foreach (var row in _rows)
             row.Enabled = !busy;

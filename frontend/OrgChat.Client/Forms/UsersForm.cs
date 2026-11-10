@@ -52,7 +52,7 @@ public sealed class UsersForm : Form
         header.Controls.Add(_subtitle);
         root.Controls.Add(header, 0, 0);
 
-        var searchField = Ui.Field("Rechercher un compte…", out _searchBox, height: 40);
+        var searchField = Ui.SearchField("Rechercher un compte…", out _searchBox, height: 40);
         searchField.Dock = DockStyle.Top;
         _searchBox.TextChanged += (_, _) => RebuildRows();
         root.Controls.Add(searchField, 0, 1);
@@ -99,6 +99,7 @@ public sealed class UsersForm : Form
         CancelButton = closeButton;
 
         RebuildRows();
+        Localization.Apply(this);
     }
 
     private void RebuildRows()
@@ -112,7 +113,8 @@ public sealed class UsersForm : Form
                         u.Username.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
                         u.DisplayName.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
                         u.Email.Contains(filter, StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(u => u.IsActive)
+            .OrderByDescending(u => u.MustChangePassword && u.ActivatedAt == null)
+            .ThenByDescending(u => u.IsActive)
             .ThenBy(u => u.DisplayName)
             .ToList();
 
@@ -121,18 +123,24 @@ public sealed class UsersForm : Form
 
         if (filtered.Count == 0)
         {
-            var empty = Ui.Label("Aucun compte trouvé.", Palette.Small, Palette.Faint);
+            var empty = Ui.Label(Localization.T("Aucun compte trouvé."), Palette.Small, Palette.Faint);
             empty.Margin = new Padding(4, 14, 0, 0);
             _listPanel.Controls.Add(empty);
         }
 
-        _subtitle.Text = $"{_users.Count} compte(s) · {_users.Count(u => u.IsActive)} actif(s)";
+        var pendingCount = _users.Count(u => u.MustChangePassword && u.ActivatedAt == null);
+        _subtitle.Text = pendingCount > 0
+            ? Localization.F("{0} compte(s) · {1} actif(s) · {2} en attente",
+                _users.Count, _users.Count(u => u.IsActive && !(u.MustChangePassword && u.ActivatedAt == null)), pendingCount)
+            : Localization.F("{0} compte(s) · {1} actif(s)",
+                _users.Count, _users.Count(u => u.IsActive));
         _listPanel.ResumeLayout();
         ResizeRows();
     }
 
     private Control BuildUserRow(UserDto user)
     {
+        var pendingActivation = user.MustChangePassword && user.ActivatedAt == null;
         var row = new RoundedPanel
         {
             Height = 72,
@@ -163,12 +171,17 @@ public sealed class UsersForm : Form
             right.Controls.Add(manage);
         }
 
-        var state = Ui.Pill(user.IsActive ? "actif" : "inactif",
-            user.IsActive ? Palette.Success : Palette.Faint);
+        var state = Ui.Pill(
+            pendingActivation
+                ? Localization.T("En attente")
+                : user.IsActive ? Localization.T("Actif") : Localization.T("Inactif"),
+            pendingActivation
+                ? Palette.Warning
+                : user.IsActive ? Palette.Success : Palette.Faint);
         state.Margin = new Padding(8, 0, 0, 0);
         right.Controls.Add(state);
 
-        var role = Ui.Pill(user.IsAdmin ? "admin" : "utilisateur",
+        var role = Ui.Pill(user.IsAdmin ? Localization.T("Administrateur") : Localization.T("Utilisateur"),
             user.IsAdmin ? Palette.Warning : Palette.Accent);
         role.Margin = new Padding(8, 0, 0, 0);
         right.Controls.Add(role);
@@ -180,7 +193,7 @@ public sealed class UsersForm : Form
             DisplayName = user.DisplayName,
             Seed = user.Id.ToString(),
             ShowStatus = true,
-            Online = user.IsActive,
+            Online = user.IsOnline,
             Location = new Point(14, 15),
             Size = new Size(42, 42)
         };
@@ -188,7 +201,7 @@ public sealed class UsersForm : Form
 
         var nameText = string.IsNullOrWhiteSpace(user.DisplayName) ? user.Username : user.DisplayName;
         if (user.Id == _currentUserId)
-            nameText += " (vous)";
+            nameText += Localization.T(" (vous)");
 
         var name = Ui.Label(nameText, Palette.BodyBold, user.IsActive ? Palette.Text : Palette.Muted);
         name.AutoSize = false;
@@ -232,24 +245,33 @@ public sealed class UsersForm : Form
     {
         var menu = new ContextMenuStrip();
 
+        if (user.MustChangePassword && user.ActivatedAt == null)
+        {
+            var activationItem = new ToolStripMenuItem(
+                Localization.T("Obtenir un lien d'activation"));
+            activationItem.Click += async (_, _) => await ShowActivationLinkAsync(user);
+            menu.Items.Add(activationItem);
+            menu.Items.Add(new ToolStripSeparator());
+        }
+
         var roleItem = new ToolStripMenuItem(
-            user.IsAdmin ? "Rétrograder en utilisateur" : "Promouvoir administrateur");
+            user.IsAdmin ? Localization.T("Rétrograder en utilisateur") : Localization.T("Promouvoir administrateur"));
         roleItem.Click += async (_, _) => await UpdateRoleAsync(user);
         menu.Items.Add(roleItem);
 
-        menu.Items.Add("Réinitialiser le mot de passe", null,
+        menu.Items.Add(Localization.T("Réinitialiser le mot de passe"), null,
             (_, _) => ResetPassword(user));
 
         menu.Items.Add(new ToolStripSeparator());
 
         menu.Items.Add(
-            user.IsActive ? "Désactiver le compte" : "Réactiver le compte",
+            user.IsActive ? Localization.T("Désactiver le compte") : Localization.T("Réactiver le compte"),
             null,
             async (_, _) => await ToggleActiveAsync(user));
 
         menu.Items.Add(new ToolStripSeparator());
 
-        var deleteItem = new ToolStripMenuItem("Supprimer le compte")
+        var deleteItem = new ToolStripMenuItem(Localization.T("Supprimer le compte"))
         {
             ForeColor = Palette.Danger
         };
@@ -284,11 +306,13 @@ public sealed class UsersForm : Form
         if (_busy)
             return;
 
-        var newRole = user.IsAdmin ? "User" : "Admin";
-        var verb = user.IsAdmin ? "retirer le rôle administrateur à" : "promouvoir administrateur";
+        var newRole = user.IsAdmin ? "User" : "OrgAdmin";
+        var verb = user.IsAdmin
+            ? Localization.T("retirer le rôle administrateur à")
+            : Localization.T("promouvoir administrateur");
         var confirm = MessageBox.Show(this,
-            $"Voulez-vous {verb} {user.DisplayName} (@{user.Username}) ?",
-            "Changer le rôle",
+            Localization.F("Voulez-vous {0} {1} (@{2}) ?", verb, user.DisplayName, user.Username),
+            Localization.T("Changer le rôle"),
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Question);
 
@@ -313,8 +337,8 @@ public sealed class UsersForm : Form
 
         _errorLabel.Text = string.Empty;
         MessageBox.Show(this,
-            $"Le mot de passe de @{user.Username} a été réinitialisé.",
-            "Mot de passe réinitialisé",
+            Localization.F("Le mot de passe de @{0} a été réinitialisé.", user.Username),
+            Localization.T("Mot de passe réinitialisé"),
             MessageBoxButtons.OK,
             MessageBoxIcon.Information);
     }
@@ -325,9 +349,9 @@ public sealed class UsersForm : Form
             return;
 
         var confirm = MessageBox.Show(this,
-            $"Supprimer le compte de {user.DisplayName} (@{user.Username}) ?\n\n" +
-            "Le compte sera anonymisé et ne pourra plus se connecter. Les messages existants sont conservés.",
-            "Supprimer le compte",
+            Localization.F("Supprimer le compte de {0} (@{1}) ?\n\nLe compte sera anonymisé et ne pourra plus se connecter. Les messages existants sont conservés.",
+                user.DisplayName, user.Username),
+            Localization.T("Supprimer le compte"),
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Warning);
 
@@ -346,10 +370,10 @@ public sealed class UsersForm : Form
         if (_busy)
             return;
 
-        var verb = user.IsActive ? "désactiver" : "réactiver";
+        var verb = user.IsActive ? Localization.T("désactiver") : Localization.T("réactiver");
         var confirm = MessageBox.Show(this,
-            $"Voulez-vous {verb} le compte de {user.DisplayName} (@{user.Username}) ?",
-            "Confirmer",
+            Localization.F("Voulez-vous {0} le compte de {1} (@{2}) ?", verb, user.DisplayName, user.Username),
+            Localization.T("Confirmer"),
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Question);
 
@@ -364,6 +388,23 @@ public sealed class UsersForm : Form
                 await _api.ReactivateUserAsync(user.Id);
 
             _errorLabel.Text = string.Empty;
+        });
+    }
+
+    private async Task ShowActivationLinkAsync(UserDto user)
+    {
+        if (_busy)
+            return;
+
+        await RunAdminActionAsync(async () =>
+        {
+            var created = await _api.ResendActivationAsync(user.Id);
+            UseWaitCursor = false;
+            using var dialog = new AccountCreatedForm(
+                created,
+                _api.ResolveActivationLink(created),
+                directPassword: false);
+            dialog.ShowDialog(this);
         });
     }
 

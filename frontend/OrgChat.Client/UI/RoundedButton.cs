@@ -21,7 +21,7 @@ public sealed class RoundedButton : Button
         BackColor = Color.Transparent;
         Cursor = Cursors.Hand;
         Font = Palette.BodyBold;
-        ForeColor = Color.White;
+        ForeColor = Palette.OnAccent;
         Height = 40;
     }
 

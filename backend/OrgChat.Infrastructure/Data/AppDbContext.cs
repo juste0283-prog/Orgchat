@@ -18,6 +18,18 @@ public class AppDbContext : DbContext
     public DbSet<Notification> Notifications { get; set; }
     public DbSet<Call> Calls { get; set; }
 
+    // --- Plateforme : organisations, RBAC, comptes, supervision ---
+
+    public DbSet<Organization> Organizations { get; set; }
+    public DbSet<Department> Departments { get; set; }
+    public DbSet<DepartmentMember> DepartmentMembers { get; set; }
+    public DbSet<Role> Roles { get; set; }
+    public DbSet<UserRole> UserRoles { get; set; }
+    public DbSet<Invitation> Invitations { get; set; }
+    public DbSet<Session> Sessions { get; set; }
+    public DbSet<AuditLog> AuditLogs { get; set; }
+    public DbSet<UserActivity> UserActivities { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

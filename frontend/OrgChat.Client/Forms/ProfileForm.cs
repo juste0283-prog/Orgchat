@@ -60,7 +60,15 @@ public sealed class ProfileForm : Form
         handle.Location = new Point(84, 34);
         header.Controls.Add(handle);
 
-        var role = Ui.Pill(user.IsAdmin ? "Administrateur" : "Utilisateur", user.IsAdmin ? Palette.Warning : Palette.Accent);
+        var roleText = user.Role switch
+        {
+            "SuperAdmin" => Localization.T("Super administrateur"),
+            "OrgAdmin" => Localization.T("Administrateur d'organisation"),
+            "Supervisor" => Localization.T("Superviseur"),
+            "DepartmentManager" => Localization.T("Responsable de département"),
+            _ => Localization.T("Utilisateur"),
+        };
+        var role = Ui.Pill(roleText, user.IsAdmin ? Palette.Warning : Palette.Accent);
         role.Location = new Point(84, 58);
         header.Controls.Add(role);
         root.Controls.Add(header, 0, 0);
@@ -127,6 +135,7 @@ public sealed class ProfileForm : Form
 
         Controls.Add(root);
         CancelButton = _cancelButton;
+        Localization.Apply(this);
 
         _displayNameBox.Text = user.DisplayName;
         _emailBox.Text = user.Email;
@@ -145,7 +154,7 @@ public sealed class ProfileForm : Form
 
         if (string.IsNullOrWhiteSpace(displayName))
         {
-            ShowError("Le nom affiché est requis.");
+            ShowError(Localization.T("Le nom affiché est requis."));
             _displayNameBox.Focus();
             return;
         }
@@ -153,7 +162,7 @@ public sealed class ProfileForm : Form
         if (!string.IsNullOrWhiteSpace(email) &&
             (!email.Contains('@') || email.StartsWith('@') || email.EndsWith('@')))
         {
-            ShowError("Saisissez une adresse e-mail valide.");
+            ShowError(Localization.T("Saisissez une adresse e-mail valide."));
             _emailBox.Focus();
             return;
         }
@@ -191,8 +200,8 @@ public sealed class ProfileForm : Form
 
         ShowError(string.Empty);
         MessageBox.Show(this,
-            "Votre mot de passe a été modifié.",
-            "Mot de passe modifié",
+            Localization.T("Votre mot de passe a été modifié."),
+            Localization.T("Mot de passe modifié"),
             MessageBoxButtons.OK,
             MessageBoxIcon.Information);
     }
@@ -202,7 +211,7 @@ public sealed class ProfileForm : Form
         _saveButton.Enabled = !busy;
         _cancelButton.Enabled = !busy;
         _passwordButton.Enabled = !busy;
-        _saveButton.Text = busy ? "Enregistrement…" : "Enregistrer";
+        _saveButton.Text = Localization.T(busy ? "Enregistrement…" : "Enregistrer");
         _displayNameBox.Enabled = !busy;
         _emailBox.Enabled = !busy;
         UseWaitCursor = busy;

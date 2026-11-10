@@ -53,8 +53,8 @@ public sealed class ChangePasswordForm : Form
             new Font("Segoe UI", 16f, FontStyle.Bold));
         title.Location = new Point(0, 0);
         var subtitleText = adminReset
-            ? $"Définissez un nouveau mot de passe pour @{username}."
-            : "Choisissez un mot de passe d'au moins 8 caractères.";
+            ? Localization.F("Définissez un nouveau mot de passe pour @{0}.", username)
+            : Localization.T("Choisissez un mot de passe d'au moins 8 caractères.");
         var subtitle = Ui.Label(subtitleText, Palette.Small, Palette.Muted);
         subtitle.Location = new Point(0, 30);
         header.Controls.Add(title);
@@ -95,6 +95,7 @@ public sealed class ChangePasswordForm : Form
         footer.Controls.Add(_cancelButton);
         root.Controls.Add(footer, 0, row);
 
+        Localization.Apply(this);
         Controls.Add(root);
         CancelButton = _cancelButton;
         Shown += (_, _) => (_currentBox ?? _newBox).Focus();
@@ -122,21 +123,23 @@ public sealed class ChangePasswordForm : Form
 
         if (!_adminReset && string.IsNullOrEmpty(_currentBox.Text))
         {
-            _errorLabel.Text = "Indiquez votre mot de passe actuel.";
+            _errorLabel.Text = Localization.T("Indiquez votre mot de passe actuel.");
             _currentBox.Focus();
             return;
         }
 
         if (_newBox.Text.Length < MinimumPasswordLength)
         {
-            _errorLabel.Text = $"Le nouveau mot de passe doit contenir au moins {MinimumPasswordLength} caractères.";
+            _errorLabel.Text = Localization.F(
+                "Le nouveau mot de passe doit contenir au moins {0} caractères.",
+                MinimumPasswordLength);
             _newBox.Focus();
             return;
         }
 
         if (!string.Equals(_newBox.Text, _confirmBox.Text, StringComparison.Ordinal))
         {
-            _errorLabel.Text = "Les deux mots de passe ne correspondent pas.";
+            _errorLabel.Text = Localization.T("Les deux mots de passe ne correspondent pas.");
             _confirmBox.Focus();
             return;
         }

@@ -61,6 +61,23 @@ public static class Ui
         return panel;
     }
 
+    /// <summary>Champ de recherche avec une icône de loupe toujours visible.</summary>
+    public static RoundedPanel SearchField(string placeholder, out TextBox textBox, int height = 38)
+    {
+        var panel = Field(placeholder, out textBox, height: height);
+        var icon = Label("\uE721", new Font("Segoe MDL2 Assets", 10f), Palette.Faint, autoSize: false);
+        icon.SetBounds(12, (height - 18) / 2, 18, 18);
+        icon.TextAlign = ContentAlignment.MiddleCenter;
+        panel.Controls.Add(icon);
+        icon.BringToFront();
+
+        var box = textBox;
+        box.Location = new Point(34, (height - box.PreferredHeight) / 2);
+        panel.Resize += (_, _) => box.Width = Math.Max(20, panel.Width - 46);
+        box.Width = Math.Max(20, panel.Width - 46);
+        return panel;
+    }
+
     public static RoundedButton Primary(string text, int width = 160, int height = 42) => new()
     {
         Text = text,
@@ -88,8 +105,9 @@ public static class Ui
         Width = width,
         Height = height,
         NormalColor = Palette.Danger,
-        HoverColor = ColorTranslator.FromHtml("#FF7581"),
+        HoverColor = Palette.Blend(Palette.Danger, Color.White, 0.15f),
         PressedColor = Palette.Danger,
+        ForeColor = Color.White,
         CornerRadius = 9
     };
 
@@ -142,9 +160,9 @@ public static class Ui
 
     public static string FriendlyError(Exception exception) => exception switch
     {
-        ApiException api => api.Message,
-        OperationCanceledException => "Opération annulée.",
-        _ => exception.Message
+        ApiException api => Localization.T(api.Message),
+        OperationCanceledException => Localization.T("Opération annulée."),
+        _ => Localization.T(exception.Message)
     };
 
     public static string FormatConversationTime(DateTime? value)
@@ -159,7 +177,7 @@ public static class Ui
         if (local.Date == DateTime.Today)
             return local.ToString("HH:mm");
         if (local.Date == DateTime.Today.AddDays(-1))
-            return "Hier";
+            return Localization.T("Hier");
         if (local.Year == DateTime.Today.Year)
             return local.ToString("dd/MM");
         return local.ToString("dd/MM/yy");

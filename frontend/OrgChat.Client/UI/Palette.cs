@@ -5,22 +5,46 @@ namespace OrgChat.Client.UI;
 /// <summary>Palette et helpers graphiques partagés par tout le client.</summary>
 public static class Palette
 {
-    public static readonly Color Background = ColorTranslator.FromHtml("#0E1116");
-    public static readonly Color Sidebar = ColorTranslator.FromHtml("#12161D");
-    public static readonly Color Surface = ColorTranslator.FromHtml("#171C24");
-    public static readonly Color SurfaceAlt = ColorTranslator.FromHtml("#1E242E");
-    public static readonly Color SurfaceHover = ColorTranslator.FromHtml("#232A36");
-    public static readonly Color Border = ColorTranslator.FromHtml("#2A3341");
-    public static readonly Color Accent = ColorTranslator.FromHtml("#4F8DFD");
-    public static readonly Color AccentHover = ColorTranslator.FromHtml("#6A9FFD");
-    public static readonly Color AccentSoft = ColorTranslator.FromHtml("#243B63");
-    public static readonly Color Text = ColorTranslator.FromHtml("#E9EEF6");
-    public static readonly Color Muted = ColorTranslator.FromHtml("#8C98AA");
-    public static readonly Color Faint = ColorTranslator.FromHtml("#637085");
-    public static readonly Color Success = ColorTranslator.FromHtml("#3DD68C");
-    public static readonly Color Warning = ColorTranslator.FromHtml("#F2B84B");
-    public static readonly Color Danger = ColorTranslator.FromHtml("#EF5B68");
-    public static readonly Color BubbleIn = ColorTranslator.FromHtml("#1C2330");
+    private static ThemeDefinition Current => ThemeManager.Current;
+
+    public static Color Background => Current.Background;
+    public static Color Sidebar => Current.Sidebar;
+    public static Color Surface => Current.Surface;
+    public static Color SurfaceAlt => Current.SurfaceAlt;
+    public static Color SurfaceHover => Current.SurfaceHover;
+    public static Color Border => Current.Border;
+    public static Color Accent => Current.Accent;
+    public static Color AccentHover => Current.AccentHover;
+    public static Color AccentSoft => Current.AccentSoft;
+    public static Color OnAccent => Current.OnAccent;
+    public static Color Text => Current.Text;
+    public static Color Muted => Current.Muted;
+    public static Color Faint => Current.Faint;
+    public static Color Success => Current.Success;
+    public static Color Warning => Current.Warning;
+    public static Color Danger => Current.Danger;
+    public static Color BubbleIn => Current.BubbleIn;
+    public static Color HeroStart => Current.HeroStart;
+    public static Color HeroEnd => Current.HeroEnd;
+    public static Color HeroText => Current.HeroText;
+    public static Color HeroMuted => Current.HeroMuted;
+
+    // Barre latérale des espaces d'administration : bleu nuit constant, quel que
+    // soit le thème, pour reprendre le rendu des maquettes OrgChat.
+    public static readonly Color DashboardSidebar = ColorTranslator.FromHtml("#0F1F36");
+    public static readonly Color DashboardSidebarHover = ColorTranslator.FromHtml("#172B49");
+    public static readonly Color DashboardSidebarCard = ColorTranslator.FromHtml("#14263F");
+    public static readonly Color DashboardSidebarBorder = ColorTranslator.FromHtml("#1D3452");
+    public static readonly Color DashboardSidebarText = Color.White;
+    public static readonly Color DashboardSidebarMuted = ColorTranslator.FromHtml("#9EAEC5");
+
+    public static readonly Color ChartBlue = ColorTranslator.FromHtml("#1B65FC");
+    public static readonly Color ChartTeal = ColorTranslator.FromHtml("#10B981");
+    public static readonly Color ChartOrange = ColorTranslator.FromHtml("#F59E0B");
+    public static readonly Color ChartPurple = ColorTranslator.FromHtml("#8B5CF6");
+    public static readonly Color ChartRed = ColorTranslator.FromHtml("#EF4444");
+    public static readonly Color ChartNavy = ColorTranslator.FromHtml("#0F1F36");
+    public static readonly Color ChartSlate = ColorTranslator.FromHtml("#64748B");
 
     public static readonly Font Body = new("Segoe UI", 9.5f);
     public static readonly Font BodyBold = new("Segoe UI", 9.5f, FontStyle.Bold);
@@ -36,9 +60,18 @@ public static class Palette
     public static Color ParentBackground(Control? control)
     {
         var parent = control?.Parent;
-        return parent is RoundedPanel rounded
-            ? rounded.FillColor
-            : parent?.BackColor ?? Background;
+        while (parent is not null)
+        {
+            if (parent is RoundedPanel rounded)
+                return rounded.FillColor;
+
+            if (parent.BackColor != Color.Transparent)
+                return parent.BackColor;
+
+            parent = parent.Parent;
+        }
+
+        return Background;
     }
 
     public static Color Blend(Color baseColor, Color overlay, float amount)

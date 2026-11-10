@@ -52,12 +52,35 @@ Client (WinForms, séparé)
 
 | Entité | Table | Description |
 |--------|-------|-------------|
-| `User` | `Users` | Utilisateur : username, email, display name, hash de mot de passe, rôle, statut actif |
+| `User` | `Users` | Utilisateur : username, email (pro), display name, prénom/nom, fonction, hash de mot de passe, statut (`AccountStatus` : Active/Suspended/Disabled), suspension temporaire (`SuspendedUntil`, `SuspensionReason`), organisation, département principal, `MustChangePassword` (première connexion), `ActivatedAt`, `LastLoginAt` |
 | `Conversation` | `Conversations` | Conversation : titre, type (privé/groupe), créateur, date |
 | `ConversationParticipant` | `ConversationParticipants` | Lien utilisateur ↔ conversation : date de jointure, dernière lecture, admin de groupe |
 | `Message` | `Messages` | Message : conversation, expéditeur, contenu, horodatage serveur, état édité/supprimé |
 | `Attachment` | `Attachments` | Pièce jointe : message, nom original, nom de stockage, type, taille, chemin |
 | `Notification` | `Notifications` | Notification : utilisateur, type, payload JSON, date de lecture |
+| `Organization` | `Organizations` | Organisation : nom (unique), logo, coordonnées (email/phone/adresse), statut, paramètres JSON |
+| `Department` | `Departments` | Département d'une organisation : nom (unique par organisation), description, responsable (`ManagerUserId`), statut |
+| `DepartmentMember` | `DepartmentMembers` | Affectation utilisateur ↔ département avec `IsPrimary` (conçu pour évoluer vers le multi-affectation) |
+| `Role` | `Roles` | Rôle système RBAC (sémé : SuperAdmin, OrgAdmin, Supervisor, DepartmentManager, User) |
+| `UserRole` | `UserRoles` | Attribution d'un rôle à un utilisateur, éventuellement bornée à une organisation (`OrganizationId` null = rôle global) |
+| `Invitation` | `Invitations` | Jeton d'activation ou de réinitialisation : hash SHA-256 (le jeton en clair n'est jamais stocké), expiration, usage unique |
+| `Session` | `Sessions` | Session JWT persistée : `TokenId` (claim jti, unique), expiration, révocation, IP, user-agent |
+| `AuditLog` | `AuditLogs` | Journal d'audit en écriture seule : acteur, action, entité, résultat, IP, user-agent — protégé par triggers SQLite |
+| `UserActivity` | `UserActivities` | Trace d'activité (métadonnées uniquement) : connexions, activations — pour la supervision |
+
+### 2.1.1 Rôles RBAC (sémés en base)
+
+| Id | Clé | Libellé | Périmètre |
+|----|-----|---------|-----------|
+| 1 | `SuperAdmin` | Super administrateur | Plateforme globale, organisations |
+| 2 | `OrgAdmin` | Administrateur d'organisation | Utilisateurs, départements, rôles, paramètres de son organisation |
+| 3 | `Supervisor` | Superviseur | Supervision et statistiques (métadonnées uniquement, jamais le contenu des conversations) |
+| 4 | `DepartmentManager` | Responsable de département | Membres et activité de son département |
+| 5 | `User` | Utilisateur | Messagerie et profil |
+
+Les clés sont les claims de rôle du JWT ; les permissions sont vérifiées côté serveur
+(`[Authorize(Roles = "SuperAdmin,OrgAdmin")]` + règles métier) — le client ne fait que
+masquer des menus.
 
 ### 2.2 Contraintes clés
 
@@ -67,9 +90,37 @@ Client (WinForms, séparé)
 - `Messages.ConversationId` — indexé
 - `Messages(ConversationId, CreatedAt)` — index composé pour l'historique paginé
 - Suppression en cascade : conversation → participants, messages, attachments ; message → attachments ; utilisateur → notifications
-- Suppression restreinte : conversation → créateur ; message → expéditeur ; participant → utilisateur
+- Suppression restreinte : conversation → créateur ; message → expéditeur ; participant → utilisateur ; audit → acteur (le journal survit à la suppression des comptes)
+- `Organizations.Name` — unique, indexé
+- `Departments(OrganizationId, Name)` — unique composite
+- `DepartmentMembers(DepartmentId, UserId)` — unique composite
+- `Roles.Key` — unique, sémé
+- `UserRoles(UserId, RoleId, OrganizationId)` — unique composite
+- `Invitations.TokenHash` — unique, indexé ; `Sessions.TokenId` — unique, indexé
+- `AuditLogs.CreatedAt` / `AuditLogs.Action` / `AuditLogs.ActorUserId` / `AuditLogs(EntityType, EntityId)` — indexés
+- Triggers `AuditLogs_PreventUpdate` / `AuditLogs_PreventDelete` : toute tentative
+  de modification ou de suppression directe d'une entrée d'audit en base est rejetée
+  (`RAISE(ABORT)`).
 
-### 2.3 Script PostgreSQL
+### 2.3 Migration PlatformV2 (non destructive)
+
+La migration `PlatformV2` ajoute les tables de la plateforme (Organizations,
+Departments, DepartmentMembers, Roles, UserRoles, Invitations, Sessions,
+AuditLogs, UserActivities) et les colonnes étendues de `Users` **sans détruire
+les données** :
+
+- les utilisateurs existants sont rattachés à l'organisation par défaut
+  « Organisation principale » (Id 1) ;
+- l'ancienne colonne `Users.Role` (1 = User, 2 = Admin) est convertie en
+  lignes `UserRoles` (2 → OrgAdmin, sinon → Utilisateur) puis supprimée ;
+- `Users.Status` est initialisé à `Active` (1).
+
+**Sauvegarde** : le serveur copie automatiquement la base dans
+`OrgChat.Server/backups/OrgChat_<horodatage>.db` avant chaque application de
+migrations (`DatabaseBackup.CreateBeforeMigration`). Script manuel de
+sauvegarde et de purge 30 jours : `backend/scripts/backup-database.ps1`.
+
+### 2.4 Script PostgreSQL
 
 Un script SQL équivalent est fourni dans `scripts/postgresql/init.sql` pour migration éventuelle vers PostgreSQL (nécessite le provider Npgsql EF Core).
 
@@ -118,18 +169,20 @@ Un script SQL équivalent est fourni dans `scripts/postgresql/init.sql` pour mig
 
 | Méthode | Endpoint | Corps | Réponse | Description |
 |---------|----------|-------|---------|-------------|
-| `POST` | `/api/auth/register` | `RegisterRequest` | `AuthResponse` | Inscription d'un nouvel utilisateur |
-| `POST` | `/api/auth/login` | `LoginRequest` | `AuthResponse` | Connexion, retour du jeton JWT |
+| `POST` | `/api/auth/register` | `RegisterRequest` | `AuthResponse` | Inscription libre — **désactivée par défaut** ; ne reste active que si `OrgChat:EnableSelfRegistration=true` (amorce de tests). En production, seuls les administrateurs créent les comptes. |
+| `POST` | `/api/auth/login` | `LoginRequest` | `AuthResponse` | Connexion : vérifie le statut du compte (suspension, désactivation), crée une session persistée (jti), journalise l'audit et l'activité, retourne le JWT |
+| `GET` | `/api/auth/activate?token=…` | — | Page HTML | Page d'activation autonome ouverte par le lien reçu ; elle permet de choisir le mot de passe et appelle le `POST` ci-dessous |
+| `POST` | `/api/auth/activate` | `ActivateAccountRequest` | `AuthResponse` | Consomme le jeton à usage unique, définit le mot de passe, active le compte et ouvre une session |
+| `POST` | `/api/auth/logout` | — | 204 | Révoque la session courante et journalise la déconnexion (authentifié) |
 
-**RegisterRequest :**
-```json
-{
-  "username": "string",
-  "email": "string",
-  "displayName": "string",
-  "password": "string"
-}
-```
+**Flux de connexion (login)** :
+1. Vérification des identifiants (PBKDF2-SHA256, comparaison à temps constant).
+2. Contrôle du statut : `IsActive` + `AccountStatus` (un compte `Suspended` avec
+   `SuspendedUntil` expiré redevient automatiquement utilisable).
+3. Création d'une entrée `Sessions` avec un `jti` unique intégré au JWT
+   (expiration 120 min) — la session est révocable côté serveur.
+4. Purge des sessions expirées de l'utilisateur, mise à jour de
+   `Users.LastLoginAt`, écriture AuditLog (`LoggedIn`) + UserActivity (`Login`).
 
 **AuthResponse :**
 ```json
@@ -139,31 +192,85 @@ Un script SQL équivalent est fourni dans `scripts/postgresql/init.sql` pour mig
   "username": "string",
   "email": "string",
   "displayName": "string",
-  "role": "User | Admin"
+  "role": "SuperAdmin | OrgAdmin | Supervisor | DepartmentManager | User"
 }
 ```
+
+Le JWT embarque : `sub` (Id utilisateur), `name` (username), `jti` (session),
+`org` (Id d'organisation), autant de claims `role` que de rôles attribués.
+À chaque requête, le middleware vérifie compte actif + statut + session non
+révoquée/expirée.
 
 ### 4.2 Utilisateurs
 
 | Méthode | Endpoint | Autorisation | Description |
 |---------|----------|--------------|-------------|
 | `GET` | `/api/users/me` | Authentifié | Profil de l'utilisateur connecté |
-| `GET` | `/api/users` | Authentifié | Liste de tous les utilisateurs (infos publiques) |
-| `GET` | `/api/users/{id}` | Authentifié | Profil d'un utilisateur par ID |
-| `POST` | `/api/users` | Admin | Crée un compte (`CreateUserRequest`) |
-| `PUT` | `/api/users/{id}` | Authentifié / Admin | Modifie un profil (soi-même ou admin) |
-| `PUT` | `/api/users/{id}/role` | Admin | Change le rôle (`UpdateUserRoleRequest`) |
-| `PUT` | `/api/users/me/password` | Authentifié | Change son propre mot de passe (`ChangePasswordRequest`) |
-| `PUT` | `/api/users/{id}/password` | Admin | Réinitialise le mot de passe d'un compte (`ResetPasswordRequest`) |
+| `GET` | `/api/users` | Authentifié | Liste des utilisateurs du périmètre (infos publiques) |
+| `GET` | `/api/users/{id}` | Authentifié | Profil d'un utilisateur du périmètre |
+| `POST` | `/api/users` | SuperAdmin/OrgAdmin | Crée un compte : lien d'activation **ou** mot de passe direct (`CreateUserRequest`) |
+| `PUT` | `/api/users/{id}` | Admin / soi-même | Modifie un profil |
+| `PUT` | `/api/users/{id}/role` | SuperAdmin/OrgAdmin | Change le rôle ; `OrgAdmin`/`Supervisor` réservés au SuperAdmin |
+| `PUT` | `/api/users/me/password` | Authentifié | Change son propre mot de passe |
+| `PUT` | `/api/users/{id}/password` | Admin | Réinitialise le mot de passe |
 | `PUT` | `/api/users/{id}/deactivate` | Admin | Désactive un compte |
 | `PUT` | `/api/users/{id}/reactivate` | Admin | Réactive un compte |
+| `POST` | `/api/users/{id}/suspend` | Admin | Suspension temporaire (durée ou date, motif) |
+| `POST` | `/api/users/{id}/unsuspend` | Admin | Lève la suspension |
+| `POST` | `/api/users/{id}/reset-password` | Admin | Réinitialise via jeton (sans jamais voir le mot de passe) |
+| `POST` | `/api/users/{id}/resend-activation` | Admin | Réémet un lien d'activation (ancien jeton révoqué) |
+| `GET` | `/api/users/me/sessions` | Authentifié | Sessions actives de l'utilisateur |
+| `DELETE` | `/api/users/me/sessions/{sessionId}` | Authentifié | Révoque une de ses sessions |
+| `GET` | `/api/users/{id}/sessions` | Admin | Sessions d'un compte |
+| `DELETE` | `/api/users/{id}/sessions/{sessionId}` | Admin | Révoque une session d'un compte |
+| `DELETE` | `/api/users/{id}/sessions` | Admin | Révoque toutes les sessions d'un compte |
+| `GET` | `/api/users/me/activity` | Authentifié | Historique d'activité (connexions, etc.) |
+| `GET` | `/api/users/{id}/activity` | Admin | Historique d'activité d'un compte |
+| `POST` | `/api/users/import` | SuperAdmin/OrgAdmin | Import CSV de comptes |
 | `DELETE` | `/api/users/{id}` | Admin | Supprime/anonymise un compte (sauf soi-même) |
 
 **Règles d'administration :**
-- Un admin ne peut pas se retirer lui-même le rôle admin ni supprimer son propre compte.
+- Aucune auto-inscription : `POST /api/auth/register` est désactivé par défaut.
+- Seul le SuperAdmin peut désigner un `OrgAdmin` ou un `Supervisor`.
+- Un admin ne peut pas se retirer lui-même son propre rôle administrateur.
 - Le dernier administrateur actif est protégé : impossible de le rétrograder, de le désactiver ou de le supprimer.
+- Un `OrgAdmin` ne peut pas modifier un compte `OrgAdmin`, `Supervisor` ou `SuperAdmin`.
 - La suppression est une anonymisation (`Compte supprimé`, identifiants remplacés) afin de conserver les messages et pièces jointes liés.
-- Toute action d'administration est journalisée via `ILogger`.
+- Toute action d'administration est journalisée dans `AuditLogs` (acteur, action, entité, résultat, IP).
+
+### 4.3 Parcours création → activation d'un compte
+
+1. **L'administrateur crée le compte** depuis `Utilisateurs → Créer un compte`.
+   Deux modes explicites sont proposés :
+   - **Lien d'activation** (par défaut) : aucun mot de passe n'est saisi. Le
+     compte est créé avec `MustChangePassword=true` et `ActivatedAt=null` ; il
+     ne peut pas encore se connecter.
+   - **Mot de passe immédiat** : l'administrateur saisit un mot de passe
+     (8 caractères minimum). Le compte est actif immédiatement.
+2. **Le serveur émet un jeton** pour le mode lien : 32 octets aléatoires,
+   stocké uniquement sous forme de hash SHA-256 dans `Invitations`, avec
+   expiration (72 h par défaut) et usage unique. La réponse `CreatedUserDto`
+   contient `activationToken`, `activationLink` (URL absolue) et
+   `invitationExpiresAt`.
+3. **Le client affiche une fenêtre de confirmation** avec l'identifiant, le
+   lien complet, la date d'expiration et un bouton **Copier le lien**.
+   L'administrateur transmet le lien par e-mail ou messagerie interne.
+4. **L'utilisateur ouvre le lien** dans son navigateur (page HTML
+   `/api/auth/activate?token=…`) ou le colle dans le client OrgChat
+   (`Première connexion ? Activer mon compte`). Il choisit son mot de passe.
+5. **Le jeton est consommé**, le mot de passe est haché (PBKDF2-SHA256), le
+   compte est activé (`ActivatedAt`, `MustChangePassword=false`) et une session
+   est créée. Le jeton ne peut plus être réutilisé.
+6. **Compte en attente** : tant que l'étape 4 n'est pas terminée, la liste des
+   utilisateurs affiche une pastille **En attente**. Le menu **Gérer** propose
+   alors **Obtenir un lien d'activation** : le serveur révoque l'ancien jeton
+   (s'il existe) et en émet un nouveau, sans jamais afficher de mot de passe.
+
+**Configuration du lien absolu :** le serveur utilise
+`OrgChat:PublicBaseUrl` s'il est renseigné, sinon `Request.Scheme://Request.Host`.
+En production derrière un reverse proxy, définir par exemple
+`OrgChat__PublicBaseUrl=https://chat.example.org` pour que les liens envoyés
+par e-mail soient accessibles depuis l'extérieur.
 
 **UserDto :**
 ```json
@@ -172,8 +279,21 @@ Un script SQL équivalent est fourni dans `scripts/postgresql/init.sql` pour mig
   "username": "string",
   "email": "string",
   "displayName": "string",
-  "role": "User | Admin",
-  "isActive": true
+  "firstName": "string",
+  "lastName": "string",
+  "jobTitle": "string",
+  "departmentId": 0,
+  "departmentName": "string",
+  "organizationId": 0,
+  "role": "SuperAdmin | OrgAdmin | Supervisor | DepartmentManager | User",
+  "isActive": true,
+  "status": "Active | Suspended | Disabled",
+  "suspendedUntil": null,
+  "suspensionReason": null,
+  "mustChangePassword": false,
+  "activatedAt": null,
+  "lastLoginAt": null,
+  "isOnline": false
 }
 ```
 
@@ -314,6 +434,61 @@ La recherche exige au moins 2 caractères, ignore les messages supprimés et ret
 ```
 
 Les notifications sont persistées dans la table `Notifications` existante, avec les détails du message sérialisés dans `Payload` (JSON). Elles sont créées après chaque message pour les participants autres que l'expéditeur. `POST /api/conversations/{id}/read` marque également comme lues les notifications liées à cette conversation.
+
+### 4.6 Organisations et départements
+
+**Organisations (`/api/organizations`)**
+
+| Méthode | Endpoint | Autorisation | Description |
+|---------|----------|--------------|-------------|
+| `GET` | `/current` | Authentifié | Organisation courante (nom, logo, coordonnées, paramètres) |
+| `GET` | `/` | SuperAdmin | Liste de toutes les organisations |
+| `POST` | `/` | SuperAdmin | Crée une organisation |
+| `PUT` | `/current` | SuperAdmin/OrgAdmin | Met à jour l'organisation courante |
+| `PUT` | `/{id}/activate` | SuperAdmin | Active une organisation |
+| `PUT` | `/{id}/deactivate` | SuperAdmin | Désactive une organisation |
+| `PUT` | `/current/logo` | SuperAdmin/OrgAdmin | Téléverse le logo |
+| `GET` | `/{id}/logo` | Authentifié | Récupère le logo |
+
+**Départements (`/api/departments`)**
+
+| Méthode | Endpoint | Autorisation | Description |
+|---------|----------|--------------|-------------|
+| `GET` | `/` | Authentifié | Départements du périmètre |
+| `GET` | `/{id}` | Authentifié | Détail d'un département |
+| `POST` | `/` | SuperAdmin/OrgAdmin | Crée un département |
+| `PUT` | `/{id}` | SuperAdmin/OrgAdmin | Modifie un département |
+| `DELETE` | `/{id}` | SuperAdmin/OrgAdmin | Désactive un département |
+| `POST` | `/{id}/members` | SuperAdmin/OrgAdmin | Affecte un membre |
+| `DELETE` | `/{id}/members/{userId}` | SuperAdmin/OrgAdmin | Retire un membre |
+| `GET` | `/{id}/stats` | Responsable du département ou admin | Statistiques du département |
+
+### 4.7 Supervision et audit
+
+**Supervision (`/api/supervision`)** — rôles `SuperAdmin`, `OrgAdmin`, `Supervisor`.
+Périmètre : organisation du JWT, sauf SuperAdmin (global). Métadonnées uniquement,
+aucun contenu de conversation.
+
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| `GET` | `/summary` | Compteurs globaux (comptes, présence, sessions, messages 24 h, connexions) |
+| `GET` | `/users?search=&status=&role=&departmentId=&page=&pageSize=` | Comptes paginés |
+| `GET` | `/departments` | Statistiques par département |
+| `GET` | `/activity?days=30` | Série quotidienne (1 à 90 jours) |
+| `GET` | `/connections?hours=24` | Sessions par heure (1 à 168 h) |
+| `GET` | `/health` | Santé API / base / SignalR |
+| `GET` | `/incidents?days=7&page=&pageSize=` | Échecs de connexion et résultats non `Success` |
+| `GET` | `/reports?period=daily\|weekly\|monthly` | Rapport agrégé, top utilisateurs, départements |
+
+**Audit (`/api/audit`)** — rôles `SuperAdmin`, `OrgAdmin`, `Supervisor`.
+
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| `GET` | `/?search=&action=&entityType=&result=&actorUserId=&from=&to=&page=&pageSize=` | Journal paginé et filtrable |
+| `GET` | `/facets` | Actions, types d'entité et résultats distincts |
+
+Le journal est en écriture seule (triggers SQLite). Un non-SuperAdmin ne voit que
+les entrées dont l'acteur appartient à son organisation.
 
 ---
 
@@ -640,9 +815,11 @@ dotnet run
 - `Contracts/Auth/RegisterRequest.cs`, `LoginRequest.cs`, `AuthResponse.cs`
 - `Contracts/Users/UserDto.cs`, `UpdateUserRequest.cs`
 - `Contracts/Conversations/ConversationDto.cs`, `ConversationCreateRequest.cs`, `ConversationParticipantDto.cs`, `AddParticipantRequest.cs`, `ReadReceiptDto.cs`
-- `Contracts/Messages/MessageDto.cs`, `MessageCreateRequest.cs`, `PagedMessageResponse.cs`, `AttachmentDto.cs`
+- `Contracts/Messages/MessageDto.cs`, `MessageCreateRequest.cs`, `MessageUpdateRequest.cs`, `MessageDeletedDto.cs`, `MessageSearchResultDto.cs`, `PagedMessageResponse.cs`, `AttachmentDto.cs`
+- `Contracts/Conversations/ConversationDeletedDto.cs`
 - `Contracts/Notifications/NotificationDto.cs`
 - `Contracts/Realtime/PresenceChangedDto.cs`, `UserTypingDto.cs`
+- `Contracts/Users/CreateUserRequest.cs`, `UpdateUserRoleRequest.cs`, `ChangePasswordRequest.cs`, `ResetPasswordRequest.cs`
 - `Contracts/Services/IPasswordHasher.cs`, `ITokenService.cs`
 - `Entities/*`, `Enums/*`
 
@@ -654,16 +831,24 @@ dotnet run
 
 ### OrgChat.Server
 - `Program.cs` (DI, auth JWT, SignalR, migration auto)
-- `Controllers/AuthController.cs`, `UsersController.cs`, `ConversationsController.cs`, `MessagesController.cs`, `AttachmentsController.cs`, `NotificationsController.cs`
+- `Controllers/AuthController.cs`, `UsersController.cs`, `ConversationsController.cs`, `MessagesController.cs`, `AttachmentsController.cs`, `NotificationsController.cs`, `SearchController.cs`
 - `Hubs/ChatHub.cs`
-- `Services/ConversationService.cs`, `MessageService.cs`, `AttachmentService.cs`, `NotificationService.cs`
+- `Services/ConversationService.cs`, `MessageService.cs`, `AttachmentService.cs`, `NotificationService.cs`, `MaintenanceService.cs`
 - `appsettings.json`, `launchSettings.json`
 
 ### OrgChat.Tests
 - `OrgChatTestFactory.cs`
 - `AuthIntegrationTests.cs`, `ConversationIntegrationTests.cs`, `MessageIntegrationTests.cs`
 - `ReadReceiptIntegrationTests.cs`, `AttachmentIntegrationTests.cs`, `NotificationIntegrationTests.cs`
+- `FeatureIntegrationTests.cs`
 - `AppDbContextSmokeTests.cs`
+
+### Client WinForms (`frontend/OrgChat.Client`)
+- `Services/ApiClient.cs`, `RealtimeChatService.cs`, `SessionStore.cs` (DPAPI)
+- `Forms/MainForm.cs` (messages, recherche, tray, temps réel)
+- `Forms/MessageEditForm.cs`, `MessageSearchForm.cs`, `NotificationsForm.cs`
+- `Forms/UsersForm.cs`, `CreateUserForm.cs`, `ChangePasswordForm.cs`, `ProfileForm.cs`
+- `UI/MessageBubble.cs` (menu contextuel modifier/supprimer)
 
 ### Scripts
 - `scripts/postgresql/init.sql`
@@ -672,7 +857,120 @@ dotnet run
 - `OrgChat.sln`
 
 ### Documentation
-- `DOCUMENTATION_TECHNIQUE.md`
+- `DOCUMENTATION_TECHNIQUE.md`, `README.md`
+
+---
+
+## 15. Client Windows Forms — fonctionnalités complémentaires
+
+- **Session persistante** : le jeton et l'URL du serveur sont stockés dans `%LOCALAPPDATA%\OrgChat\session.dat`, chiffrés avec DPAPI (`ProtectedData`, portée utilisateur). La session est restaurée au démarrage via `GET /api/users/me`, puis supprimée si le jeton est invalide ou le compte inactif.
+- **Déconnexion** : efface la session DPAPI, ferme réellement la fenêtre principale (`CloseForLogout`) et réaffiche l'écran de connexion.
+- **Mode tray** : fermer la fenêtre principale la masque dans la zone de notification ; l'application reste connectée pour recevoir les messages. Le menu du tray permet de rouvrir ou quitter.
+- **Recherche** : la barre de recherche principale ouvre `MessageSearchForm` (touche Entrée) et permet d'accéder directement au message dans sa conversation.
+- **Messages** : menu contextuel sur ses propres messages pour modifier ou supprimer ; les mises à jour arrivent en temps réel via `MessageUpdated` / `MessageDeleted`.
+- **Conversations** : menu contextuel pour quitter un groupe ou supprimer une conversation, avec confirmation.
+- **Notifications** : centre de notifications avec pagination, suppression unitaire, « Tout supprimer », marquage lu et navigation vers la conversation.
+- **Administration** : `UsersForm` permet de créer un compte, changer un rôle, réinitialiser un mot de passe, activer/désactiver et supprimer/anonymiser un compte.
+- **Profil** : modification du profil et changement du mot de passe personnel.
+- **Multilinguisme** : le client est disponible en **français** et en **anglais**. Les libellés statiques sont traduits par `Localization.Apply(Control)` (parcours de l'arbre de contrôles, `PlaceholderText`, menus contextuels et `LinkLabel` recalculés) ; les chaînes dynamiques passent par `Localization.T(...)` / `Localization.F(...)`. Le changement de langue reconstruit l'interface sans perdre l'authentification.
+- **Thèmes** : `ThemeManager` définit quatre palettes (`Sombre`, `Clair`, `Océan`, `Améthyste`) ; `Palette` agit comme une façade vers le thème courant. Les couleurs `Hero*`, `OnAccent` garantissent la lisibilité sur les thèmes clairs ou à accent clair. Le changement de thème reconstruit également l'interface.
+- **Préférences** : langue et thème sont persistés dans `%LOCALAPPDATA%\OrgChat\settings.json` (`SettingsStore`), chargés dans `Program.cs` avant la création des formulaires. Le dialogue `SettingsForm` est accessible depuis l'écran de connexion, l'en-tête de la fenêtre principale et le menu tray.
+
+---
+
+## 16. Plateforme V2 — organisations, RBAC, comptes, supervision, audit
+
+Mission : faire évoluer OrgChat en plateforme professionnelle (multi-organisations,
+RBAC 5 rôles, comptes créés par les administrateurs avec activation sécurisée,
+départements, supervision, audit), sans réécrire la messagerie existante.
+
+### 16.1 État d'avancement
+
+- ✅ **Socle de données** : `Organization`, `Department`, `DepartmentMember`, `Role`,
+  `UserRole`, `Invitation`, `Session`, `AuditLog`, `UserActivity` + extension de `User`
+  (prénom/nom, fonction, statut, suspension temporaire, département, `MustChangePassword`).
+- ✅ **Migration `PlatformV2` non destructive** : données existantes préservées,
+  ancienne colonne `Users.Role` convertie vers `UserRoles` (2 → `OrgAdmin`, sinon `User`),
+  triggers d'audit, sauvegarde automatique avant migration.
+- ✅ **RBAC** : rôles sémés, `IUserRoleService`, JWT multi-claims `role` + `org`,
+  autorisations vérifiées côté serveur, périmètre par organisation.
+- ✅ **Comptes** : création par admin (lien d'activation ou mot de passe direct),
+  activation, désactivation, suspension temporaire, réactivation, réinitialisation,
+  sessions, historique d'activité, import CSV, filtres et pagination.
+- ✅ **Organisations et départements** : CRUD, logo, paramètres, responsable, membres, stats.
+- ✅ **Supervision** : endpoints de synthèse, utilisateurs, départements, activité,
+  santé, connexions, incidents, rapports (métadonnées uniquement).
+- ✅ **Audit** : journal append-only paginé/filtrable + facettes, protégé par triggers SQLite,
+  isolation par organisation pour les non-SuperAdmin.
+- ✅ **Frontend** : tableau de bord par rôle, module de supervision (7 pages, graphiques
+  dessinés, tableaux thémés, filtres, pagination), profil/mot de passe, gestion des comptes.
+- ✅ **Tests** : 36 tests (authentification, comptes, RBAC, isolation, supervision, audit,
+  notifications, messagerie, affectations départementales, migrations non destructives).
+
+### 16.2 Matrice des rôles
+
+| Capacité | SuperAdmin | OrgAdmin | Supervisor | DepartmentManager | User |
+|----------|:----------:|:--------:|:----------:|:-----------------:|:----:|
+| Créer / gérer les organisations | ✅ | — | — | — | — |
+| Désigner `OrgAdmin` / `Supervisor` | ✅ | — | — | — | — |
+| Gérer les comptes de son organisation | ✅ | ✅ | — | — | — |
+| Gérer les départements | ✅ | ✅ | — | son périmètre | — |
+| Superviser (stats, rapports, incidents) | global | son org. | son org. | — | — |
+| Lire le journal d'audit | global | son org. | son org. | — | — |
+| Messagerie privée / groupes | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+Le `DepartmentManager` dispose de son propre tableau de bord ; les endpoints de
+supervision (`/api/supervision/*`, `/api/audit`) sont réservés à
+`SuperAdmin`, `OrgAdmin` et `Supervisor`.
+
+### 16.3 Endpoints de supervision (`/api/supervision`)
+
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| `GET` | `/summary` | Compteurs : utilisateurs, actifs, suspendus, désactivés, en ligne, départements, conversations, messages 24 h, nouveaux comptes 7 j, sessions actives, connexions simultanées |
+| `GET` | `/users?search=&status=&role=&departmentId=&page=&pageSize=` | Comptes paginés avec rôle, département, statut, présence, dernière connexion |
+| `GET` | `/departments` | Membres, actifs, en ligne et messages (7 j) par département |
+| `GET` | `/activity?days=` | Série quotidienne : connexions, échecs, nouveaux comptes, messages, utilisateurs actifs |
+| `GET` | `/connections?hours=` | Sessions et utilisateurs uniques par heure + connexions simultanées courantes |
+| `GET` | `/health` | État API / base / SignalR, fournisseur, disponibilité, version, sessions |
+| `GET` | `/incidents?days=&page=&pageSize=` | Échecs de connexion, accès refusés et résultats non `Success` |
+| `GET` | `/reports?period=daily\|weekly\|monthly` | Synthèse de la période, top utilisateurs, répartition par département |
+
+**Règles de confidentialité** : ces endpoints ne lisent que des compteurs et des
+métadonnées (dates, statuts, volumes). Aucun contenu de message ni pièce jointe
+n'est retourné. Le périmètre est l'organisation du JWT, sauf SuperAdmin (global).
+
+### 16.4 Endpoints d'audit (`/api/audit`)
+
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| `GET` | `/api/audit?search=&action=&entityType=&result=&actorUserId=&from=&to=&page=&pageSize=` | Journal paginé et filtrable |
+| `GET` | `/api/audit/facets` | Valeurs distinctes (actions, types d'entité, résultats) pour les filtres |
+
+Le journal est **append-only** : `AuditService` n'expose aucune mise à jour ni suppression,
+et les triggers SQLite `AuditLogs_PreventUpdate` / `AuditLogs_PreventDelete` rejettent
+toute tentative de falsification. Un non-SuperAdmin ne voit que les entrées dont
+l'acteur appartient à son organisation.
+
+### 16.5 Frontend de supervision
+
+- Formulaire `SupervisionForm` avec navigation latérale et 7 pages :
+  Vue d'ensemble, Utilisateurs, Activité, Départements, Rapports, Journal d'audit, Santé.
+- Graphiques dessinés sans dépendance externe : histogramme (`BarChartPanel`) et
+  anneau de répartition (`DonutChartPanel`).
+- Tableaux thémés (`ThemedListView`) : en-têtes sombres, lignes alternées, survol,
+  sélection douce, cohérents avec les 4 thèmes.
+- Filtres (recherche, statut, rôle, action, résultat), pagination, états de chargement,
+  messages d'erreur réseau, bouton d'actualisation.
+- Traductions FR/EN pour les libellés statiques et dynamiques.
+
+### 16.6 Reste à faire
+
+- 🔜 Tests de non-régression plus étendus sur les parcours UI (tests d'interface).
+- 🔜 Notifications temps réel des incidents de sécurité vers les superviseurs.
+- 🔜 Export PDF/CSV des rapports de supervision.
+- 🔜 Rotation de clé JWT et politique de mot de passe configurable.
+
 
 ---
 

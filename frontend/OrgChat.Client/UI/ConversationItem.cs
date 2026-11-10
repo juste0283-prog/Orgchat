@@ -101,7 +101,7 @@ public sealed class ConversationItem : Control
             var unreadWidth = Math.Max(20, TextRenderer.MeasureText(unreadText, Palette.SmallBold).Width + 12);
             unreadRect = new Rectangle(Width - unreadWidth - 14, 43, unreadWidth, 18);
             Palette.DrawRounded(g, unreadRect, 9, Palette.Accent);
-            TextRenderer.DrawText(g, unreadText, Palette.SmallBold, unreadRect, Color.White,
+            TextRenderer.DrawText(g, unreadText, Palette.SmallBold, unreadRect, Palette.OnAccent,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
 
