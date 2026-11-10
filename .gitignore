@@ -34,3 +34,6 @@ logs/
 # Secrets locaux
 appsettings.Development.json
 secrets.json
+
+# Pièces jointes stockées par le serveur
+/backend/OrgChat.Server/uploads/

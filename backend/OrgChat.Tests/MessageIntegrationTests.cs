@@ -10,9 +10,9 @@ namespace OrgChat.Tests;
 public class MessageIntegrationTests : IClassFixture<OrgChatTestFactory>
 {
     private readonly HttpClient _client;
-    private readonly string _aliceToken;
-    private readonly string _bobToken;
-    private readonly int _conversationId;
+    private string _aliceToken;
+    private string _bobToken;
+    private int _conversationId;
     private readonly OrgChatTestFactory _factory;
 
     public MessageIntegrationTests(OrgChatTestFactory factory)
@@ -53,6 +53,18 @@ public class MessageIntegrationTests : IClassFixture<OrgChatTestFactory>
             Password = "Password123!"
         };
         var response = await _client.PostAsJsonAsync("/api/auth/register", request);
+        if (response.StatusCode != HttpStatusCode.OK)
+        {
+            // Le fixture partage la base entre les tests de la classe : réutiliser le compte existant.
+            var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
+            {
+                Username = username,
+                Password = "Password123!"
+            });
+            var loginResult = await loginResponse.Content.ReadFromJsonAsync<AuthResponse>();
+            return loginResult!.Token;
+        }
+
         var result = await response.Content.ReadFromJsonAsync<AuthResponse>();
         return result!.Token;
     }
@@ -102,6 +114,15 @@ public class MessageIntegrationTests : IClassFixture<OrgChatTestFactory>
         Assert.Equal(3, result.Items.Count);
         Assert.True(result.HasNextPage);
         Assert.Equal(5, result.TotalCount);
+
+        var nextPageResponse = await _client.GetAsync(
+            $"/api/conversations/{_conversationId}/messages?page=2&pageSize=3");
+        Assert.Equal(HttpStatusCode.OK, nextPageResponse.StatusCode);
+        var nextPage = await nextPageResponse.Content.ReadFromJsonAsync<PagedMessageResponse>();
+        Assert.NotNull(nextPage);
+        Assert.Equal(2, nextPage.Items.Count);
+        Assert.Empty(result.Items.Select(message => message.Id)
+            .Intersect(nextPage.Items.Select(message => message.Id)));
     }
 
     [Fact]
@@ -119,4 +140,3 @@ public class MessageIntegrationTests : IClassFixture<OrgChatTestFactory>
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 }
-

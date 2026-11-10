@@ -1,7 +1,10 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using OrgChat.Core.Contracts.Messages;
+using OrgChat.Server.Hubs;
 using OrgChat.Server.Services;
+using System.Security.Claims;
 
 namespace OrgChat.Server.Controllers;
 
@@ -11,15 +14,22 @@ namespace OrgChat.Server.Controllers;
 public class MessagesController : ControllerBase
 {
     private readonly MessageService _messageService;
+    private readonly AttachmentService _attachmentService;
+    private readonly IHubContext<ChatHub> _hub;
 
-    public MessagesController(MessageService messageService)
+    public MessagesController(
+        MessageService messageService,
+        AttachmentService attachmentService,
+        IHubContext<ChatHub> hub)
     {
         _messageService = messageService;
+        _attachmentService = attachmentService;
+        _hub = hub;
     }
 
     private int GetCurrentUserId()
     {
-        var userIdClaim = User.FindFirstValue(System.Security.Claims.ClaimTypes.NameIdentifier);
+        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
         return userIdClaim != null ? int.Parse(userIdClaim) : 0;
     }
 
@@ -46,6 +56,85 @@ public class MessagesController : ControllerBase
         try
         {
             var message = await _messageService.SendMessageAsync(conversationId, senderId, request);
+            await _hub.Clients.Group(conversationId.ToString()).SendAsync("ReceiveMessage", message);
+            return Ok(message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    [HttpPut("{messageId:int}")]
+    public async Task<IActionResult> UpdateMessage(
+        int conversationId,
+        int messageId,
+        [FromBody] MessageUpdateRequest request)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(ModelState);
+
+        try
+        {
+            var message = await _messageService.UpdateMessageAsync(
+                conversationId, messageId, GetCurrentUserId(), request.Content);
+
+            if (message is null)
+                return NotFound(new { error = "Message introuvable." });
+
+            await _hub.Clients.Group(conversationId.ToString())
+                .SendAsync("MessageUpdated", message);
+
+            return Ok(message);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    [HttpDelete("{messageId:int}")]
+    public async Task<IActionResult> DeleteMessage(int conversationId, int messageId)
+    {
+        try
+        {
+            var deleted = await _messageService.DeleteMessageAsync(
+                conversationId, messageId, GetCurrentUserId());
+
+            if (deleted is null)
+                return NotFound(new { error = "Message introuvable." });
+
+            await _hub.Clients.Group(conversationId.ToString())
+                .SendAsync("MessageDeleted", deleted);
+
+            return Ok(deleted);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+    }
+
+    [HttpPost("attachments")]
+    [RequestSizeLimit(22 * 1024 * 1024)]
+    public async Task<IActionResult> SendAttachment(
+        int conversationId,
+        [FromForm] IFormFile? file,
+        [FromForm] string? content)
+    {
+        if (file is null)
+            return BadRequest(new { error = "Aucun fichier n'a été fourni." });
+
+        try
+        {
+            var message = await _attachmentService.SendAttachmentAsync(
+                conversationId, GetCurrentUserId(), file, content);
+
+            await _hub.Clients.Group(conversationId.ToString()).SendAsync("ReceiveMessage", message);
             return Ok(message);
         }
         catch (InvalidOperationException ex)

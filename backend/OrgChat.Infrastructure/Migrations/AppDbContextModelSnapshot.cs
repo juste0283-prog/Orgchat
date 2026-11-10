@@ -1,4 +1,4 @@
-#nullable disable
+﻿#nullable disable
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
@@ -46,12 +46,58 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
 
             b.HasKey("Id");
             b.HasIndex("MessageId");
-            b.ToTable("Attachments");
+            b.HasIndex("StorageFileName")
+                .IsUnique();
+            b.ToTable("Attachments", t =>
+                {
+                    t.HasCheckConstraint("CK_Attachments_SizeInBytes", "\"SizeInBytes\" >= 0");
+                });
 
             b.HasOne("OrgChat.Core.Entities.Message", "Message")
                 .WithMany("Attachments")
                 .HasForeignKey("MessageId")
                 .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired();
+        });
+
+        modelBuilder.Entity("OrgChat.Core.Entities.Call", b =>
+        {
+            b.Property<int>("Id")
+                .ValueGeneratedOnAdd()
+                .HasColumnType("INTEGER");
+            b.Property<int>("ConversationId")
+                .HasColumnType("INTEGER");
+            b.Property<int>("InitiatorId")
+                .HasColumnType("INTEGER");
+            b.Property<DateTime>("StartedAt")
+                .HasColumnType("TEXT");
+            b.Property<DateTime?>("EndedAt")
+                .HasColumnType("TEXT");
+            b.Property<byte>("Status")
+                .ValueGeneratedOnAdd()
+                .HasColumnType("INTEGER")
+                .HasDefaultValue((byte)1);
+            b.Property<DateTime>("CreatedAt")
+                .HasColumnType("TEXT");
+
+            b.HasKey("Id");
+            b.HasIndex("InitiatorId");
+            b.HasIndex(new[] { "ConversationId", "StartedAt" });
+            b.ToTable("Calls", t =>
+                {
+                    t.HasCheckConstraint("CK_Calls_Status", "\"Status\" IN (1, 2, 3, 4, 5)");
+                    t.HasCheckConstraint("CK_Calls_EndedAt", "\"EndedAt\" IS NULL OR \"EndedAt\" >= \"StartedAt\"");
+                });
+
+            b.HasOne("OrgChat.Core.Entities.Conversation", "Conversation")
+                .WithMany("Calls")
+                .HasForeignKey("ConversationId")
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired();
+            b.HasOne("OrgChat.Core.Entities.User", "Initiator")
+                .WithMany("InitiatedCalls")
+                .HasForeignKey("InitiatorId")
+                .OnDelete(DeleteBehavior.Restrict)
                 .IsRequired();
         });
 
@@ -72,7 +118,10 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
 
             b.HasKey("Id");
             b.HasIndex("CreatedById");
-            b.ToTable("Conversations");
+            b.ToTable("Conversations", t =>
+                {
+                    t.HasCheckConstraint("CK_Conversations_Type", "\"Type\" IN (1, 2)");
+                });
 
             b.HasOne("OrgChat.Core.Entities.User", "CreatedBy")
                 .WithMany()
@@ -95,12 +144,13 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
             b.Property<DateTime?>("LastReadAt")
                 .HasColumnType("TEXT");
             b.Property<bool>("IsGroupAdmin")
-                .HasColumnType("INTEGER");
+                .ValueGeneratedOnAdd()
+                .HasColumnType("INTEGER")
+                .HasDefaultValue(false);
             b.Property<DateTime>("CreatedAt")
                 .HasColumnType("TEXT");
 
             b.HasKey("Id");
-            b.HasIndex("ConversationId");
             b.HasIndex("UserId");
             b.HasIndex(new[] { "ConversationId", "UserId" }, isUnique: true);
             b.ToTable("ConversationParticipants");
@@ -134,12 +184,13 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
             b.Property<DateTime?>("EditedAt")
                 .HasColumnType("TEXT");
             b.Property<bool>("IsDeleted")
-                .HasColumnType("INTEGER");
+                .ValueGeneratedOnAdd()
+                .HasColumnType("INTEGER")
+                .HasDefaultValue(false);
             b.Property<DateTime?>("DeletedAt")
                 .HasColumnType("TEXT");
 
             b.HasKey("Id");
-            b.HasIndex("ConversationId");
             b.HasIndex("SenderId");
             b.HasIndex(new[] { "ConversationId", "CreatedAt" });
             b.ToTable("Messages");
@@ -167,8 +218,7 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
                 .IsRequired()
                 .HasMaxLength(100)
                 .HasColumnType("TEXT(100)");
-            b.Property<string>("Payload")
-                .IsRequired()
+            b.Property<string?>("Payload")
                 .HasColumnType("TEXT");
             b.Property<DateTime?>("ReadAt")
                 .HasColumnType("TEXT");
@@ -176,7 +226,7 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
                 .HasColumnType("TEXT");
 
             b.HasKey("Id");
-            b.HasIndex("UserId");
+            b.HasIndex(new[] { "UserId", "ReadAt" });
             b.ToTable("Notifications");
 
             b.HasOne("OrgChat.Core.Entities.User", "User")
@@ -207,16 +257,23 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
                 .IsRequired()
                 .HasColumnType("TEXT");
             b.Property<byte>("Role")
-                .HasColumnType("INTEGER");
+                .ValueGeneratedOnAdd()
+                .HasColumnType("INTEGER")
+                .HasDefaultValue((byte)1);
             b.Property<bool>("IsActive")
-                .HasColumnType("INTEGER");
+                .ValueGeneratedOnAdd()
+                .HasColumnType("INTEGER")
+                .HasDefaultValue(true);
             b.Property<DateTime>("CreatedAt")
                 .HasColumnType("TEXT");
 
             b.HasKey("Id");
             b.HasIndex("Username", isUnique: true);
             b.HasIndex("Email", isUnique: true);
-            b.ToTable("Users");
+            b.ToTable("Users", t =>
+                {
+                    t.HasCheckConstraint("CK_Users_Role", "\"Role\" IN (1, 2)");
+                });
         });
     }
 }

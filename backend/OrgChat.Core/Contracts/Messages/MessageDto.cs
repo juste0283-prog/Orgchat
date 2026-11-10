@@ -11,4 +11,5 @@ public class MessageDto
     public DateTime? EditedAt { get; set; }
     public bool IsDeleted { get; set; }
     public DateTime? DeletedAt { get; set; }
+    public ICollection<AttachmentDto> Attachments { get; set; } = new List<AttachmentDto>();
 }

@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using OrgChat.Core.Entities;
 using OrgChat.Core.Enums;
 using OrgChat.Infrastructure.Data;

@@ -9,9 +9,15 @@ public class NotificationConfiguration : IEntityTypeConfiguration<Notification>
     public void Configure(EntityTypeBuilder<Notification> builder)
     {
         builder.ToTable("Notifications");
+
         builder.Property(n => n.Type).IsRequired().HasMaxLength(100);
-        builder.Property(n => n.Payload).IsRequired();
-        builder.HasIndex(n => n.UserId);
+
+        // Le payload est facultatif (la colonne accepte NULL).
+        builder.Property(n => n.Payload);
+
+        // Index composite : notifications d'un utilisateur, lues ou non.
+        builder.HasIndex(n => new { n.UserId, n.ReadAt });
+
         builder.HasOne(n => n.User)
             .WithMany()
             .HasForeignKey(n => n.UserId)

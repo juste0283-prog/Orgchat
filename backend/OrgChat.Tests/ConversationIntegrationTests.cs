@@ -32,6 +32,18 @@ public class ConversationIntegrationTests : IClassFixture<OrgChatTestFactory>
             Password = "Password123!"
         };
         var response = await _client.PostAsJsonAsync("/api/auth/register", request);
+        if (response.StatusCode != HttpStatusCode.OK)
+        {
+            // Le fixture partage la base entre les tests de la classe : réutiliser le compte existant.
+            var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
+            {
+                Username = username,
+                Password = "Password123!"
+            });
+            var loginResult = await loginResponse.Content.ReadFromJsonAsync<AuthResponse>();
+            return loginResult!.Token;
+        }
+
         var result = await response.Content.ReadFromJsonAsync<AuthResponse>();
         return result!.Token;
     }

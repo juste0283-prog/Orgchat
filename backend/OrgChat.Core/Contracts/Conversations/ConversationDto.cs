@@ -11,4 +11,6 @@ public class ConversationDto
     public ICollection<ConversationParticipantDto> Participants { get; set; } = new List<ConversationParticipantDto>();
     public DateTime? LastMessageAt { get; set; }
     public string? LastMessagePreview { get; set; }
+    /// <summary>Nombre de messages non lus pour l'utilisateur courant.</summary>
+    public int UnreadCount { get; set; }
 }

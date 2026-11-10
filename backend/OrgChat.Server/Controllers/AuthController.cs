@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using OrgChat.Core.Contracts.Auth;
 using OrgChat.Core.Contracts.Services;
 using OrgChat.Core.Entities;
+using OrgChat.Core.Enums;
 using OrgChat.Infrastructure.Data;
 
 namespace OrgChat.Server.Controllers;

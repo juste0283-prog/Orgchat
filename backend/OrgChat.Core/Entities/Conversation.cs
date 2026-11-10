@@ -12,4 +12,5 @@ public class Conversation : BaseEntity
 
     public ICollection<ConversationParticipant> Participants { get; set; } = new List<ConversationParticipant>();
     public ICollection<Message> Messages { get; set; } = new List<Message>();
+    public ICollection<Call> Calls { get; set; } = new List<Call>();
 }

@@ -16,6 +16,7 @@ public class AppDbContext : DbContext
     public DbSet<Message> Messages { get; set; }
     public DbSet<Attachment> Attachments { get; set; }
     public DbSet<Notification> Notifications { get; set; }
+    public DbSet<Call> Calls { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
