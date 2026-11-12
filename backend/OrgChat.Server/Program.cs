@@ -12,9 +12,26 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
+var databaseProvider = builder.Configuration["DatabaseProvider"] ?? "Sqlite";
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? "Data Source=OrgChat.db;Foreign Keys=True";
-builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlite(connectionString));
+var isPostgreSql = databaseProvider.Equals("PostgreSQL", StringComparison.OrdinalIgnoreCase)
+    || databaseProvider.Equals("Npgsql", StringComparison.OrdinalIgnoreCase);
+
+builder.Services.AddDbContext<AppDbContext>(options =>
+{
+    if (isPostgreSql)
+    {
+        var pgConnectionString = builder.Configuration.GetConnectionString("PostgreSQL")
+            ?? builder.Configuration.GetConnectionString("DefaultConnection")
+            ?? "Host=localhost;Port=5432;Database=orgchat;Username=postgres;Password=postgres";
+        options.UseNpgsql(pgConnectionString);
+    }
+    else
+    {
+        options.UseSqlite(connectionString);
+    }
+});
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -65,7 +82,9 @@ using (var scope = app.Services.CreateScope())
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     if (dbContext.Database.IsRelational())
     {
-        DatabaseBackup.CreateBeforeMigration(connectionString);
+        if (!isPostgreSql)
+            DatabaseBackup.CreateBeforeMigration(connectionString);
+
         await dbContext.Database.MigrateAsync();
     }
     else
