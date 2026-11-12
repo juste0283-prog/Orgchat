@@ -11,8 +11,8 @@ using OrgChat.Infrastructure.Data;
 namespace OrgChat.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20261106223104_PlatformV2")]
-    partial class PlatformV2
+    [Migration("20261111215253_InitialSqlite")]
+    partial class InitialSqlite
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -59,7 +59,13 @@ namespace OrgChat.Infrastructure.Migrations
 
                     b.HasIndex("MessageId");
 
-                    b.ToTable("Attachments", (string)null);
+                    b.HasIndex("StorageFileName")
+                        .IsUnique();
+
+                    b.ToTable("Attachments", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Attachments_SizeInBytes", "\"SizeInBytes\" >= 0");
+                        });
                 });
 
             modelBuilder.Entity("OrgChat.Core.Entities.AuditLog", b =>
@@ -118,6 +124,46 @@ namespace OrgChat.Infrastructure.Migrations
                     b.ToTable("AuditLogs");
                 });
 
+            modelBuilder.Entity("OrgChat.Core.Entities.Call", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ConversationId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("EndedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("InitiatorId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<byte>("Status")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue((byte)1);
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InitiatorId");
+
+                    b.HasIndex("ConversationId", "StartedAt");
+
+                    b.ToTable("Calls", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Calls_EndedAt", "\"EndedAt\" IS NULL OR \"EndedAt\" >= \"StartedAt\"");
+
+                            t.HasCheckConstraint("CK_Calls_Status", "\"Status\" IN (1, 2, 3, 4, 5)");
+                        });
+                });
+
             modelBuilder.Entity("OrgChat.Core.Entities.Conversation", b =>
                 {
                     b.Property<int>("Id")
@@ -141,7 +187,10 @@ namespace OrgChat.Infrastructure.Migrations
 
                     b.HasIndex("CreatedById");
 
-                    b.ToTable("Conversations", (string)null);
+                    b.ToTable("Conversations", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Conversations_Type", "\"Type\" IN (1, 2)");
+                        });
                 });
 
             modelBuilder.Entity("OrgChat.Core.Entities.ConversationParticipant", b =>
@@ -157,7 +206,9 @@ namespace OrgChat.Infrastructure.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<bool>("IsGroupAdmin")
-                        .HasColumnType("INTEGER");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(false);
 
                     b.Property<DateTime>("JoinedAt")
                         .HasColumnType("TEXT");
@@ -320,14 +371,14 @@ namespace OrgChat.Infrastructure.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<bool>("IsDeleted")
-                        .HasColumnType("INTEGER");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(false);
 
                     b.Property<int>("SenderId")
                         .HasColumnType("INTEGER");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("ConversationId");
 
                     b.HasIndex("SenderId");
 
@@ -346,7 +397,6 @@ namespace OrgChat.Infrastructure.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Payload")
-                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime?>("ReadAt")
@@ -362,7 +412,7 @@ namespace OrgChat.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("UserId", "ReadAt");
 
                     b.ToTable("Notifications", (string)null);
                 });
@@ -717,6 +767,25 @@ namespace OrgChat.Infrastructure.Migrations
                     b.Navigation("Actor");
                 });
 
+            modelBuilder.Entity("OrgChat.Core.Entities.Call", b =>
+                {
+                    b.HasOne("OrgChat.Core.Entities.Conversation", "Conversation")
+                        .WithMany("Calls")
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("OrgChat.Core.Entities.User", "Initiator")
+                        .WithMany("InitiatedCalls")
+                        .HasForeignKey("InitiatorId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Conversation");
+
+                    b.Navigation("Initiator");
+                });
+
             modelBuilder.Entity("OrgChat.Core.Entities.Conversation", b =>
                 {
                     b.HasOne("OrgChat.Core.Entities.User", "CreatedBy")
@@ -901,6 +970,8 @@ namespace OrgChat.Infrastructure.Migrations
 
             modelBuilder.Entity("OrgChat.Core.Entities.Conversation", b =>
                 {
+                    b.Navigation("Calls");
+
                     b.Navigation("Messages");
 
                     b.Navigation("Participants");
@@ -933,6 +1004,8 @@ namespace OrgChat.Infrastructure.Migrations
                     b.Navigation("ConversationParticipants");
 
                     b.Navigation("DepartmentMembers");
+
+                    b.Navigation("InitiatedCalls");
 
                     b.Navigation("SentMessages");
 

@@ -610,10 +610,10 @@ Tâche d'arrière-plan exécutée toutes les 6 heures (hors environnement `Test`
 ```json
 {
   "ConnectionStrings": {
-    "DefaultConnection": "Data Source=OrgChat.db"
+    "DefaultConnection": ""
   },
   "JwtSettings": {
-    "Key": "votre-cle-secrete-de-developpement-a-changer-en-production-min-32-caracteres",
+    "Key": "",
     "Issuer": "OrgChat",
     "Audience": "OrgChat",
     "ExpirationMinutes": "120"

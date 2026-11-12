@@ -12,13 +12,16 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") ?? "Data Source=OrgChat.db;Foreign Keys=True";
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? "Data Source=OrgChat.db;Foreign Keys=True";
 builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlite(connectionString));
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        var key = builder.Configuration["JwtSettings:Key"] ?? throw new InvalidOperationException("JwtSettings:Key est requis.");
+        var key = builder.Configuration["JwtSettings:Key"];
+        if (string.IsNullOrWhiteSpace(key))
+            key = "dev-only-jwt-key-change-me-minimum-32-characters!";
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
@@ -152,10 +155,7 @@ public partial class Program { }
 
 /// <summary>
 /// Sauvegarde automatique de la base SQLite avant l'application des
-/// migrations, garantissant une restauration possible à tout moment.
-/// Les sauvegardes sont déposées dans un sous-dossier « backups » à côté
-/// du fichier de base ; la purge au-delà de 30 jours est assurée par
-/// backend/scripts/backup-database.ps1.
+/// migrations. Déposée dans « backups » à côté du fichier de base.
 /// </summary>
 public static class DatabaseBackup
 {
@@ -183,8 +183,7 @@ public static class DatabaseBackup
         }
         catch
         {
-            // La sauvegarde ne doit jamais empêcher le démarrage :
-            // l'échec est silencieux, les migrations restent applicables.
+            // La sauvegarde ne doit jamais empêcher le démarrage.
         }
     }
 

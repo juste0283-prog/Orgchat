@@ -32,8 +32,13 @@ public class UserRoleService : IUserRoleService
 
     public async Task SetOrganizationRoleAsync(User user, string roleKey)
     {
-        foreach (var existing in user.UserRoles.Where(ur => ur.OrganizationId == null || ur.OrganizationId == user.OrganizationId))
-            _db.UserRoles.Remove(existing);
+        var existingRoles = await _db.UserRoles
+            .Where(ur => ur.UserId == user.Id &&
+                (ur.OrganizationId == null || ur.OrganizationId == user.OrganizationId))
+            .ToListAsync();
+
+        if (existingRoles.Count > 0)
+            _db.UserRoles.RemoveRange(existingRoles);
 
         var roleId = await GetRoleIdAsync(roleKey);
         _db.UserRoles.Add(new UserRole

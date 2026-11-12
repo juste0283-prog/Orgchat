@@ -396,6 +396,15 @@ public class UsersController : ControllerBase
         return User.IsInRole(RoleKeys.SuperAdmin) || User.IsInRole(RoleKeys.OrgAdmin);
     }
 
+    private async Task<bool> IsProtectedSuperAdminTargetAsync(int targetUserId)
+    {
+        if (User.IsInRole(RoleKeys.SuperAdmin))
+            return false;
+
+        var target = await _userRoleService.GetUserWithRolesAsync(targetUserId);
+        return target != null && _userRoleService.GetPrimaryRole(target) == RoleKeys.SuperAdmin;
+    }
+
     [HttpPut("{id}/role")]
     [Authorize(Roles = AdminRoles)]
     public async Task<IActionResult> UpdateRole(int id, [FromBody] UpdateUserRoleRequest request)
@@ -492,6 +501,9 @@ public class UsersController : ControllerBase
             return BadRequest(new { error = $"Le nouveau mot de passe doit contenir au moins {MinimumPasswordLength} caractères." });
         }
 
+        if (await IsProtectedSuperAdminTargetAsync(id))
+            return Forbid();
+
         var user = await _db.Users.FindAsync(id);
         if (user == null)
             return NotFound(new { error = "Utilisateur introuvable." });
@@ -544,6 +556,9 @@ public class UsersController : ControllerBase
         var isAdmin = IsCurrentUserAdmin();
 
         if (currentUserId != id && !isAdmin)
+            return Forbid();
+
+        if (currentUserId != id && await IsProtectedSuperAdminTargetAsync(id))
             return Forbid();
 
         var user = await _db.Users.FindAsync(id);
@@ -654,6 +669,9 @@ public class UsersController : ControllerBase
         if (currentUserId == id)
             return BadRequest(new { error = "Vous ne pouvez pas désactiver votre propre compte." });
 
+        if (await IsProtectedSuperAdminTargetAsync(id))
+            return Forbid();
+
         var user = await _db.Users.FindAsync(id);
         if (user == null)
             return NotFound(new { error = "Utilisateur introuvable." });
@@ -672,6 +690,9 @@ public class UsersController : ControllerBase
     [Authorize(Roles = AdminRoles)]
     public async Task<IActionResult> ReactivateUser(int id)
     {
+        if (await IsProtectedSuperAdminTargetAsync(id))
+            return Forbid();
+
         var user = await _db.Users.FindAsync(id);
         if (user == null)
             return NotFound(new { error = "Utilisateur introuvable." });
@@ -695,6 +716,9 @@ public class UsersController : ControllerBase
     {
         if (id == GetCurrentUserId())
             return BadRequest(new { error = "Vous ne pouvez pas suspendre votre propre compte." });
+
+        if (await IsProtectedSuperAdminTargetAsync(id))
+            return Forbid();
 
         var user = await _db.Users.FindAsync(id);
         if (user == null)
@@ -726,6 +750,9 @@ public class UsersController : ControllerBase
     [Authorize(Roles = AdminRoles)]
     public async Task<IActionResult> UnsuspendUser(int id)
     {
+        if (await IsProtectedSuperAdminTargetAsync(id))
+            return Forbid();
+
         var user = await _db.Users.FindAsync(id);
         if (user == null)
             return NotFound(new { error = "Utilisateur introuvable." });
@@ -747,6 +774,9 @@ public class UsersController : ControllerBase
     [Authorize(Roles = AdminRoles)]
     public async Task<IActionResult> CreateResetInvitation(int id)
     {
+        if (await IsProtectedSuperAdminTargetAsync(id))
+            return Forbid();
+
         var user = await _db.Users.FindAsync(id);
         if (user == null)
             return NotFound(new { error = "Utilisateur introuvable." });
@@ -777,6 +807,9 @@ public class UsersController : ControllerBase
     [Authorize(Roles = AdminRoles)]
     public async Task<IActionResult> ResendActivation(int id)
     {
+        if (await IsProtectedSuperAdminTargetAsync(id))
+            return Forbid();
+
         var user = await _db.Users.FindAsync(id);
         if (user == null)
             return NotFound(new { error = "Utilisateur introuvable." });
@@ -844,6 +877,9 @@ public class UsersController : ControllerBase
     [Authorize(Roles = AdminRoles)]
     public async Task<IActionResult> GetUserSessions(int id)
     {
+        if (await IsProtectedSuperAdminTargetAsync(id))
+            return Forbid();
+
         var user = await _db.Users.FindAsync(id);
         if (user == null)
             return NotFound(new { error = "Utilisateur introuvable." });
@@ -866,6 +902,9 @@ public class UsersController : ControllerBase
     [Authorize(Roles = AdminRoles)]
     public async Task<IActionResult> RevokeUserSession(int id, int sessionId)
     {
+        if (await IsProtectedSuperAdminTargetAsync(id))
+            return Forbid();
+
         var session = await _db.Sessions.FirstOrDefaultAsync(
             s => s.Id == sessionId && s.UserId == id);
         if (session == null)
@@ -885,6 +924,9 @@ public class UsersController : ControllerBase
     [Authorize(Roles = AdminRoles)]
     public async Task<IActionResult> RevokeAllUserSessions(int id)
     {
+        if (await IsProtectedSuperAdminTargetAsync(id))
+            return Forbid();
+
         var revoked = await _db.RevokeAllSessionsAsync(id);
         await _auditService.LogAsync(GetCurrentUserId(), AuditActions.SessionRevoked, "User",
             id.ToString(), $"{revoked} session(s) révoquée(s)", "Success",

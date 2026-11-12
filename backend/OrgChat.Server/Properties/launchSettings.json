@@ -13,7 +13,7 @@
       "dotnetRunMessages": true,
       "launchBrowser": false,
       "launchUrl": "",
-      "applicationUrl": "http://localhost:5000",
+      "applicationUrl": "http://0.0.0.0:5000",
       "environmentName": "Development"
     }
   }

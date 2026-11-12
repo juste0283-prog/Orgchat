@@ -4,7 +4,7 @@ Plateforme de messagerie professionnelle pour organisation, conçue pour un dép
 
 - **Backend** : ASP.NET Core / .NET 10, EF Core, SQLite, JWT, SignalR
 - **Client** : Windows Forms / .NET 10 (`net10.0-windows`)
-- **Base** : SQLite par défaut, migrations automatiques **non destructives** au démarrage
+- **Base** : SQLite (fichier local côté serveur), migrations automatiques au démarrage
 - **Temps réel** : SignalR (`/hubs/chat`)
 - **Sécurité** : RBAC 5 rôles, sessions révocables, audit inaltérable, isolation multi-organisations
 
@@ -90,7 +90,7 @@ DOCUMENTATION_TECHNIQUE.md documentation backend détaillée
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
 - Windows 10/11 pour le client WinForms
-- Aucun serveur de base externe : SQLite est utilisé par défaut
+- Aucun serveur de base externe requis : SQLite est utilisé par défaut (fichier `OrgChat.db` côté serveur)
 
 ## Démarrage rapide
 
@@ -100,7 +100,7 @@ DOCUMENTATION_TECHNIQUE.md documentation backend détaillée
 dotnet run --project .\backend\OrgChat.Server\OrgChat.Server.csproj
 ```
 
-Le serveur écoute par défaut sur `http://localhost:5000` :
+Le serveur écoute par défaut sur `http://0.0.0.0:5000` (accessible depuis le LAN/VPN si le pare-feu l’autorise) :
 
 - API : `http://localhost:5000/api/...`
 - SignalR : `http://localhost:5000/hubs/chat`
@@ -120,15 +120,9 @@ le fichier `frontend/OrgChat.Client/appsettings.json` ou la variable d'environne
 
 ### Premier compte (racine)
 
-| Identifiant | Mot de passe | Environnement |
-|-------------|--------------|---------------|
-| `superAdmin` | `superadmin123!` | **Développement uniquement** |
-
-- En `Development`, le compte est créé une seule fois s'il n'existe pas (jamais réinitialisé).
-- En `Production`, aucun compte par défaut n'est créé : définir explicitement
-  `OrgChat:SuperAdminPassword` pour amorcer le compte racine, puis **changer le mot de passe**.
-- Le SuperAdmin peut ensuite modifier ses propres identifiants et créer les comptes
-  `OrgAdmin` / `Supervisor` de chaque organisation.
+- Au démarrage, le serveur garantit l'existence d'un compte **SuperAdmin** avec l'identifiant **`superAdmin`** et le mot de passe de bootstrap attendu, afin de permettre l'accès initial à l'administration.
+- Ce mot de passe n'est jamais stocké en clair (uniquement son hash PBKDF2 en base) et ne doit pas être consigné dans les fichiers de configuration ou de démonstration ; communiquez-le et gérez-le selon la politique de sécurité de votre organisation.
+- Le SuperAdmin peut ensuite gérer les organisations et créer les comptes `OrgAdmin` / `Supervisor`.
 
 ## Tests
 
@@ -144,44 +138,39 @@ messagerie, migrations non destructives et non-régression.
 
 ## Configuration
 
-`backend/OrgChat.Server/appsettings.json` :
+`backend/OrgChat.Server/appsettings.json` (exemple sans secrets) :
 
 ```json
 {
   "ConnectionStrings": {
-    "DefaultConnection": "Data Source=OrgChat.db"
+    "DefaultConnection": ""
   },
   "JwtSettings": {
-    "Key": "clé-secrète-minimum-32-caractères",
+    "Key": "",
     "Issuer": "OrgChat",
     "Audience": "OrgChat",
     "ExpirationMinutes": "120"
   },
   "OrgChat": {
-    "EnableSelfRegistration": false,
-    "InvitationExpirationHours": 72,
     "PublicBaseUrl": ""
-  },
-  "SmtpSettings": {
-    "Host": ""
   }
 }
 ```
 
-- `SmtpSettings:Host` vide : aucun e-mail n'est envoyé ; le lien d'activation est copiable depuis l'interface.
+- **Aucun secret ne doit être commité**. Fournissez-les via des variables d'environnement ou une configuration sécurisée (ex. `ConnectionStrings__DefaultConnection`, `JwtSettings__Key`).
 - `OrgChat:PublicBaseUrl` : URL publique du serveur (ex. `https://chat.example.org`) utilisée dans les liens d'activation. Vide = déduite de la requête HTTP.
-- `OrgChat:SuperAdminPassword` : amorçage du compte racine en Production.
-- En production, remplacer impérativement `JwtSettings:Key` et utiliser des variables
-  d'environnement pour tous les secrets.
+- `SmtpSettings:Host` vide : aucun e-mail n'est envoyé ; le lien d'activation est copiable depuis l'interface.
 
-## Sauvegarde et migrations
+## Base de données SQLite et migrations
 
-- Les migrations sont **additives** : aucune table métier n'est supprimée, les données existantes
-  sont conservées et converties (migration `PlatformV2`).
-- Une sauvegarde de la base est créée automatiquement avant migration.
-- Sauvegarde manuelle recommandée avant toute mise à jour :
-  arrêter le serveur puis copier `backend/OrgChat.Server/OrgChat.db`.
-- Restauration : remplacer le fichier de base par la sauvegarde, serveur arrêté.
+- **SGBD** : SQLite (fichier `OrgChat.db` côté serveur), utilisé via EF Core (`Microsoft.EntityFrameworkCore.Sqlite`). Aucun mot de passe de base de données n’est requis.
+- **Migrations** : une migration initiale SQLite est fournie (`Migrations/*InitialSqlite*`). Au démarrage, le serveur applique automatiquement les migrations (`MigrateAsync()`), avec sauvegarde préalable de la base dans `backups/` quand le fichier existe.
+- **Sécurité/secret JWT** : `JwtSettings:Key` doit être défini en production (variable d’environnement `JwtSettings__Key` ou configuration sécurisée). En `Development`, une clé de secours locale est utilisée si la clé n’est pas fournie, pour faciliter l’exécution.
+- **Échange multi-utilisateurs (LAN/VPN)** : les clients ne se connectent pas directement à la base ; ils passent tous par le serveur (API + SignalR) qui lit/écrit dans SQLite et diffuse les messages en temps réel. Pour un usage multi-utilisateurs sur le même sous-réseau/VPN :
+  - lancer le serveur sur une machine accessible (`http://0.0.0.0:5000` par défaut en dev), ouvrir le port 5000 si nécessaire ;
+  - configurer chaque client avec `http://<IP-ou-hôte-serveur>:5000` ;
+  - créer/activer les comptes utilisateurs (SuperAdmin garanti : `superAdmin` / `superadmin123!`).
+  - la base SQLite doit rester locale au serveur (ne pas la partager comme fichier réseau). Pour de fortes charges/concurrences ou un déploiement distribué, un SGBD client/serveur (ex. MySQL/PostgreSQL) reste préférable.
 
 ## Documentation
 

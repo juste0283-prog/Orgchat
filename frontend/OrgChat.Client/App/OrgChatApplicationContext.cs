@@ -20,8 +20,11 @@ public sealed class OrgChatApplicationContext : ApplicationContext
     {
         _api = api;
         _options = options;
+        // Exige une authentification explicite à chaque lancement : aucune session
+        // persistée n'est restaurée automatiquement.
+        _api.SetToken(null);
+        SessionStore.Clear();
         ShowLogin();
-        _ = TryRestoreSessionAsync();
     }
 
     private static bool NeedsDashboard(AuthResponse auth) =>

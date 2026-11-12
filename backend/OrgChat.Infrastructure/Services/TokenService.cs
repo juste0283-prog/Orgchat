@@ -19,7 +19,9 @@ public class TokenService : ITokenService
     public TokenService(IConfiguration configuration)
     {
         var section = configuration.GetSection("JwtSettings");
-        _key = section["Key"] ?? throw new InvalidOperationException("JwtSettings:Key est requis dans la configuration.");
+        _key = section["Key"] ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(_key))
+            _key = "dev-only-jwt-key-change-me-minimum-32-characters!";
         _issuer = section["Issuer"] ?? "OrgChat";
         _audience = section["Audience"] ?? "OrgChat";
         _expirationMinutes = int.TryParse(section["ExpirationMinutes"], out var minutes) ? minutes : 120;

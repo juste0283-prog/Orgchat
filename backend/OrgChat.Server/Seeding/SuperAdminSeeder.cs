@@ -8,14 +8,10 @@ using OrgChat.Infrastructure.Data;
 namespace OrgChat.Server.Seeding;
 
 /// <summary>
-/// Pré-création du compte SuperAdmin de bootstrap.
-/// - En <b>Development</b>, crée (une seule fois) un compte `SuperAdmin`
-///   avec le mot de passe `superadmin123!` s’il n’existe pas.
-///   Il peut ensuite changer ses identifiants via `/api/users/me/password`.
-/// - Hors Development (Production), il n’est créé que si
-///   `OrgChat:SuperAdminPassword` est explicitement renseigné, et uniquement
-///   si aucun SuperAdmin n’existe déjà.
-/// - En <b>Test</b>, aucune donnée n’est sémée (base InMemory vierge).
+/// Garantit l'accès au compte SuperAdmin de bootstrap.
+/// Les identifiants requis sont toujours : Nom d'utilisateur « superAdmin »
+/// et mot de passe « superadmin123! » (le mot de passe est stocké uniquement
+/// sous forme de hash PBKDF2 en base).
 /// </summary>
 public static class SuperAdminSeeder
 {
@@ -31,29 +27,9 @@ public static class SuperAdminSeeder
         if (environment.IsEnvironment("Test"))
             return;
 
-        var isDev = environment.IsDevelopment();
-
-        // Surcharge possible par configuration (non commitée en prod).
-        var username = configuration["OrgChat:SuperAdminUsername"] ?? DefaultDevUsername;
-        var password = configuration["OrgChat:SuperAdminPassword"];
+        const string username = DefaultDevUsername;
+        const string password = DefaultDevPassword;
         var email = configuration["OrgChat:SuperAdminEmail"] ?? "superadmin@orgchat.local";
-
-        if (string.IsNullOrWhiteSpace(password))
-        {
-            if (isDev)
-            {
-                password = DefaultDevPassword;
-            }
-            else
-            {
-                // En production : rien à faire tant qu'aucun mot de passe
-                // de bootstrap n'est configuré par l'opérateur.
-                return;
-            }
-        }
-
-        if (string.IsNullOrWhiteSpace(username))
-            return;
 
         try
         {
@@ -62,53 +38,6 @@ public static class SuperAdminSeeder
             var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
 
             var now = DateTime.UtcNow;
-
-            // Ancien compte bootstrap sémé sous la casse « SuperAdmin » :
-            // le renommer en « superAdmin » (casse demandée) sans dupliquer.
-            if (username == DefaultDevUsername)
-            {
-                var legacy = await db.Users.FirstOrDefaultAsync(u => u.Username == "SuperAdmin");
-                if (legacy != null)
-                {
-                    var alreadySuper = await db.UserRoles.AnyAsync(ur =>
-                        ur.UserId == legacy.Id && ur.Role.Key == RoleKeys.SuperAdmin);
-                    legacy.Username = DefaultDevUsername;
-                    await db.SaveChangesAsync();
-                    logger.LogInformation(
-                        "Compte SuperAdmin renommé : SuperAdmin → {Username}.", DefaultDevUsername);
-                    if (!alreadySuper)
-                    {
-                        logger.LogInformation(
-                            "Le compte renommé n'est pas SuperAdmin. Le rôle n'est pas réassigné automatiquement.");
-                    }
-                    return;
-                }
-            }
-
-            // Un compte existant avec ce username = déjà bootstrapé.
-            var existing = await db.Users.FirstOrDefaultAsync(u => u.Username == username);
-            if (existing != null)
-            {
-                // S'assure qu'il est bien SuperAdmin (si un opérateur l'a rétrogradé,
-                // on ne force pas : c'est un choix explicite, on ne toucherait pas).
-                var hasSuperRole = await db.UserRoles.AnyAsync(ur =>
-                    ur.UserId == existing.Id && ur.Role.Key == RoleKeys.SuperAdmin);
-                if (!hasSuperRole)
-                {
-                    logger.LogInformation(
-                        "Le compte bootstrap {Username} existe mais n'est pas SuperAdmin. " +
-                        "Le rôle n'est pas réassigné automatiquement.", username);
-                }
-                return;
-            }
-
-            // Hors dev : ne créer que si aucun SuperAdmin n'existe.
-            if (!isDev)
-            {
-                var anySuper = await db.UserRoles.AnyAsync(ur => ur.Role.Key == RoleKeys.SuperAdmin);
-                if (anySuper)
-                    return;
-            }
 
             var orgId = await db.Organizations
                 .Where(o => o.IsActive)
@@ -122,48 +51,83 @@ public static class SuperAdminSeeder
                 return;
             }
 
-            // Évite les collisions avec des comptes démos (email unique).
-            if (await db.Users.AnyAsync(u => u.Email == email))
+            var superAdminRoleId = await db.Roles
+                .Where(r => r.Key == RoleKeys.SuperAdmin)
+                .Select(r => r.Id)
+                .FirstOrDefaultAsync();
+
+            if (superAdminRoleId == 0)
             {
-                email = $"{username.ToLowerInvariant()}@orgchat.local";
-                if (await db.Users.AnyAsync(u => u.Email == email))
+                logger.LogWarning("Bootstrap SuperAdmin ignoré : rôle SuperAdmin introuvable.");
+                return;
+            }
+
+            // Récupère ou crée le compte « superAdmin » (en renommant l'ancien « SuperAdmin » si présent).
+            var user = await db.Users.FirstOrDefaultAsync(u => u.Username == username);
+            if (user == null)
+            {
+                user = await db.Users.FirstOrDefaultAsync(u => u.Username == "SuperAdmin");
+                if (user != null)
                 {
-                    logger.LogWarning("Bootstrap SuperAdmin ignoré : e-mail déjà utilisé.");
-                    return;
+                    user.Username = username;
                 }
             }
 
-            var user = new User
+            if (user == null)
             {
-                Username = username,
-                Email = email,
-                DisplayName = "Super Administrateur",
-                FirstName = "Super",
-                LastName = "Administrateur",
-                JobTitle = "Administrateur plateforme",
-                PasswordHash = hasher.Hash(password),
-                IsActive = true,
-                Status = AccountStatus.Active,
-                OrganizationId = orgId,
-                MustChangePassword = false,
-                ActivatedAt = now,
-                CreatedAt = now,
-            };
+                if (await db.Users.AnyAsync(u => u.Email == email))
+                {
+                    email = $"{username.ToLowerInvariant()}@orgchat.local";
+                    if (await db.Users.AnyAsync(u => u.Email == email))
+                        email = $"{username.ToLowerInvariant()}+bootstrap@orgchat.local";
+                }
 
-            db.Users.Add(user);
+                user = new User
+                {
+                    Username = username,
+                    Email = email,
+                    DisplayName = "Super Administrateur",
+                    FirstName = "Super",
+                    LastName = "Administrateur",
+                    JobTitle = "Administrateur plateforme",
+                    OrganizationId = orgId,
+                    CreatedAt = now,
+                };
+                db.Users.Add(user);
+                await db.SaveChangesAsync();
+            }
+
+            // Garantit les identifiants et l'état du compte.
+            user.Username = username;
+            user.PasswordHash = hasher.Hash(password);
+            user.IsActive = true;
+            user.Status = AccountStatus.Active;
+            user.SuspendedUntil = null;
+            user.SuspensionReason = null;
+            user.MustChangePassword = false;
+            user.ActivatedAt ??= now;
+            if (user.OrganizationId == 0)
+                user.OrganizationId = orgId;
+            if (string.IsNullOrWhiteSpace(user.Email))
+                user.Email = email;
+
             await db.SaveChangesAsync();
 
-            db.UserRoles.Add(new UserRole
+            var hasSuperRole = await db.UserRoles.AnyAsync(ur =>
+                ur.UserId == user.Id && ur.RoleId == superAdminRoleId);
+            if (!hasSuperRole)
             {
-                UserId = user.Id,
-                RoleId = await db.Roles.Where(r => r.Key == RoleKeys.SuperAdmin).Select(r => r.Id).FirstAsync(),
-                OrganizationId = orgId,
-            });
-            await db.SaveChangesAsync();
+                db.UserRoles.Add(new UserRole
+                {
+                    UserId = user.Id,
+                    RoleId = superAdminRoleId,
+                    OrganizationId = orgId,
+                });
+                await db.SaveChangesAsync();
+            }
 
             logger.LogInformation(
-                "Compte SuperAdmin de bootstrap créé : {Username} (organisation {OrganizationId}). " +
-                "Changez son mot de passe dès la première connexion.",
+                "Compte SuperAdmin garanti : {Username} (organisation {OrganizationId}).",
                 username, orgId);
         }
         catch (Exception ex)
