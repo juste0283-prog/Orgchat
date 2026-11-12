@@ -9,7 +9,8 @@
 dotnet-sdk==10.0.403
 windows-version==Windows 10/11 (x64)
 # Client desktop uniquement (WinForms) ; le serveur peut tourner en headless (LAN/VPN).
-# Base de données : SQLite (fichier OrgChat.db, migration automatique au démarrage).
+# Base de données (actuelle) : SQLite (fichier OrgChat.db, migration automatique au démarrage).
+# Préparation migration future : PostgreSQL (provider Npgsql référencé, configuration via DatabaseProvider).
 
 # =====================================================
 # OUTILS GLOBAUX (dotnet-tools)
@@ -26,6 +27,7 @@ dotnet-ef==10.0.0
 # =====================================================
 Microsoft.EntityFrameworkCore==10.0.0
 Microsoft.EntityFrameworkCore.Sqlite==10.0.0
+Npgsql.EntityFrameworkCore.PostgreSQL==10.0.0
 Microsoft.EntityFrameworkCore.Design==10.0.0
 System.IdentityModel.Tokens.Jwt==8.0.1
 

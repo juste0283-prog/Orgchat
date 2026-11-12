@@ -1,6 +1,10 @@
 -- ============================================================================
--- ORGCHAT — Schéma PostgreSQL (équivalent de la migration EF Core InitialCreate)
+-- ORGCHAT — Schéma PostgreSQL de référence (préparation / historique)
 -- Base de données exclusivement côté serveur. Les clients n'y accèdent jamais directement.
+-- REMARQUE : ce script reflète un schéma de base ancien (InitialCreate) et ne couvre
+-- pas l'ensemble du modèle actuel (organisations, RBAC, départements, sessions, audit, etc.).
+-- Pour une migration réelle vers PostgreSQL, privilégier les migrations EF Core générées
+-- depuis le modèle actuel avec le provider Npgsql (DatabaseProvider=PostgreSQL).
 -- ============================================================================
 
 -- --------------------------------------------------------
@@ -116,11 +120,9 @@ CREATE INDEX IX_Attachments_MessageId ON Attachments(MessageId);
 CREATE INDEX IX_Notifications_UserId ON Notifications(UserId);
 
 -- --------------------------------------------------------
--- Note : pour utiliser ce schéma avec Entity Framework Core (Code First),
--- il faut configurer le provider Npgsql dans OrgChat.Infrastructure :
---
---   services.AddDbContext<AppDbContext>(options =>
---       options.UseNpgsql(connectionString));
---
--- et remplacer Microsoft.EntityFrameworkCore.Sqlite par Npgsql.EntityFrameworkCore.PostgreSQL.
+-- Note (préparation) : le projet référence déjà le provider Npgsql et supporte
+-- la sélection via `DatabaseProvider` (Sqlite par défaut, PostgreSQL/Npgsql).
+-- Pour une migration réelle, configurer `ConnectionStrings:PostgreSQL`, générer
+-- les migrations EF Core ciblant PostgreSQL depuis le modèle actuel, puis
+-- appliquer sur la base (et migrer les données si nécessaire).
 -- ============================================================================

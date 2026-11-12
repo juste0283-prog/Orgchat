@@ -11,7 +11,8 @@ CHOIX TECHNIQUES
 - Serveur : C# ASP.NET Core Web API
 - Temps réel : ASP.NET Core SignalR
 - ORM : Entity Framework Core
-- Base : SQLite, fichier détenu exclusivement par le serveur
+- Base (actuelle) : SQLite, fichier détenu exclusivement par le serveur
+- Préparation migration : PostgreSQL (provider Npgsql référencé, bascule via `DatabaseProvider` ; migrations PostgreSQL à générer lors de la migration)
 - IDE : Visual Studio 2026 (charges .NET desktop + ASP.NET/web)
 - Dépôt : Git/GitHub
 
@@ -26,6 +27,7 @@ dotnet add package CommunityToolkit.Mvvm
 
 Backend / Infrastructure :
 dotnet add package Microsoft.EntityFrameworkCore.Sqlite
+dotnet add package Npgsql.EntityFrameworkCore.PostgreSQL
 dotnet add package Microsoft.EntityFrameworkCore.Design
 dotnet add package Microsoft.AspNetCore.Authentication.JwtBearer
 # SignalR serveur est inclus dans ASP.NET Core ; pas de package SignalR serveur séparé requis.
@@ -48,8 +50,9 @@ OUTILS À INSTALLER
 - DB Browser for SQLite : https://sqlitebrowser.org/
 - Insomnia : https://insomnia.rest/
 
-IMPORTANT SQLITE
-SQLite est une base embarquée, pas un serveur. Ne placez pas OrgChat.db sur un dossier partagé pour que les postes clients l'ouvrent directement. Le backend doit être le seul à accéder au fichier. Les clients passent par l'API et SignalR. Pour une forte charge multi-utilisateur, envisager ultérieurement PostgreSQL ou MySQL.
+IMPORTANT SQLITE / PRÉPARATION POSTGRESQL
+SQLite (actuel) est une base embarquée, pas un serveur. Ne placez pas OrgChat.db sur un dossier partagé pour que les postes clients l'ouvrent directement. Le backend doit être le seul à accéder au fichier. Les clients passent par l'API et SignalR. 
+Le projet est préparé pour une migration future vers PostgreSQL (package Npgsql inclus, `DatabaseProvider`, chaîne `ConnectionStrings:PostgreSQL`, script `backend/scripts/backup-database-postgresql.ps1`) afin de mieux supporter les accès concurrents et les déploiements distribués ; la bascule réelle nécessite des migrations EF Core PostgreSQL et, si besoin, une migration des données.
 
 COMMANDES DE CONTRÔLE
 dotnet --info

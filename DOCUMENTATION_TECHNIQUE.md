@@ -1,7 +1,7 @@
 # ORGCHAT — Documentation Technique Backend
 
 **Projet :** OrgChat — Application de messagerie LAN/VPN académique  
-**Stack :** .NET 10, ASP.NET Core Web API, SignalR, Entity Framework Core, SQLite  
+**Stack :** .NET 10, ASP.NET Core Web API, SignalR, Entity Framework Core (SQLite actif, PostgreSQL préparé)  
 **Date :** Novembre 2026
 
 ---
@@ -13,7 +13,7 @@
 | Projet | Rôle | Technologies |
 |--------|------|--------------|
 | `OrgChat.Core` | Entités du domaine, enums, contrats (DTOs) | .NET 10 (class library) |
-| `OrgChat.Infrastructure` | `DbContext`, configurations EF Core, migrations, services | EF Core 10, SQLite |
+| `OrgChat.Infrastructure` | `DbContext`, configurations EF Core, migrations, services | EF Core 10, SQLite (actif) ; Npgsql référencé pour préparation PostgreSQL |
 | `OrgChat.Server` | API ASP.NET Core, contrôleurs, hub SignalR, configuration auth | ASP.NET Core 10, JWT Bearer, SignalR |
 | `OrgChat.Tests` | Tests unitaires et d'intégration | xUnit, `Microsoft.AspNetCore.Mvc.Testing` |
 
@@ -42,7 +42,9 @@ Client (WinForms, séparé)
     │
     ▼
 ┌─────────────────────────────────────┐
-│  SQLite (OrgChat.db, serveur seulement)│
+│  Base de données (serveur seulement) │
+│  SQLite actif : OrgChat.db           │
+│  PostgreSQL : préparé (future migr.) │
 └─────────────────────────────────────┘
 ```
 
@@ -120,9 +122,11 @@ les données** :
 migrations (`DatabaseBackup.CreateBeforeMigration`). Script manuel de
 sauvegarde et de purge 30 jours : `backend/scripts/backup-database.ps1`.
 
-### 2.4 Script PostgreSQL
+### 2.4 Préparation PostgreSQL
 
-Un script SQL équivalent est fourni dans `scripts/postgresql/init.sql` pour migration éventuelle vers PostgreSQL (nécessite le provider Npgsql EF Core).
+- Le projet est préparé pour une migration future vers PostgreSQL : provider `Npgsql.EntityFrameworkCore.PostgreSQL` référencé, sélection par `DatabaseProvider` (`Sqlite` par défaut, `PostgreSQL`/`Npgsql`) et chaîne `ConnectionStrings:PostgreSQL`.
+- **Migrations** : les migrations actuelles (`*InitialSqlite*`) sont spécifiques à SQLite. Une migration réelle vers PostgreSQL nécessite de générer/appliquer un jeu de migrations EF Core ciblant Npgsql (et de migrer les données si besoin).
+- Un script de référence/historique est fourni dans `backend/scripts/postgresql/init.sql` (schéma de base ancien) ; pour PostgreSQL, privilégier les migrations EF Core générées depuis le modèle actuel. Un script de sauvegarde est préparé : `backend/scripts/backup-database-postgresql.ps1`.
 
 ---
 
@@ -609,14 +613,19 @@ Tâche d'arrière-plan exécutée toutes les 6 heures (hors environnement `Test`
 
 ```json
 {
+  "DatabaseProvider": "Sqlite",
   "ConnectionStrings": {
-    "DefaultConnection": ""
+    "DefaultConnection": "Data Source=OrgChat.db;Foreign Keys=True",
+    "PostgreSQL": "Host=localhost;Port=5432;Database=orgchat;Username=postgres;Password=<secret>"
   },
   "JwtSettings": {
     "Key": "",
     "Issuer": "OrgChat",
     "Audience": "OrgChat",
     "ExpirationMinutes": "120"
+  },
+  "OrgChat": {
+    "PublicBaseUrl": ""
   },
   "Logging": {
     "LogLevel": {
@@ -628,9 +637,13 @@ Tâche d'arrière-plan exécutée toutes les 6 heures (hors environnement `Test`
 }
 ```
 
+- `DatabaseProvider` : `Sqlite` (actif, défaut) ou `PostgreSQL`/`Npgsql` (préparé pour une migration future).
+
 ### 7.2 Variables d'environnement recommandées (production)
 
-- `ConnectionStrings__DefaultConnection` — chemin absolu vers `OrgChat.db`
+- `DatabaseProvider` — `Sqlite` (actuel) ou `PostgreSQL` lors d’une migration
+- `ConnectionStrings__DefaultConnection` — chaîne SQLite active (ex. chemin absolu vers `OrgChat.db`) ou chaîne par défaut selon provider
+- `ConnectionStrings__PostgreSQL` — chaîne PostgreSQL (préparation/migration future, secret hors dépôt)
 - `JwtSettings__Key` — clé secrète forte (minimum 32 caractères)
 - `ASPNETCORE_ENVIRONMENT` — `Production`
 - `ASPNETCORE_URLS` — `http://0.0.0.0:5000` (ou IP LAN/VPN spécifique)
@@ -641,27 +654,28 @@ Les fichiers sont écrits sous `<ContentRoot>/uploads/{yyyy}/{MM}/`. Ce dossier 
 
 ## 8. Base de données
 
-### 8.1 SQLite (développement / production par défaut)
+### 8.1 SQLite (actuel, développement / production par défaut)
 
 - Fichier : `OrgChat.db` dans le répertoire de travail du serveur
-- Initialisation automatique : `dbContext.Database.Migrate()` au démarrage
+- Initialisation automatique : `dbContext.Database.MigrateAsync()` au démarrage, avec sauvegarde préalable de la base dans `backups/` (SQLite uniquement)
 - Le fichier ne doit **jamais** être exposé aux clients ni placé sur un partage réseau
 
-### 8.2 Migrations
+### 8.2 Migrations (SQLite, actuelles)
 
 ```powershell
-# Créer une nouvelle migration (après modification d'entité)
-cd OrgChat.Server
-dotnet ef migrations add NomMigration
+# Créer une nouvelle migration SQLite (après modification d'entité, provider SQLite actif)
+cd backend
+dotnet ef migrations add NomMigration -p OrgChat.Infrastructure -s OrgChat.Server
 
 # Appliquer les migrations
-dotnet ef database update
+dotnet ef database update -p OrgChat.Infrastructure -s OrgChat.Server
 ```
 
-### 8.3 Script PostgreSQL
+### 8.3 Préparation PostgreSQL (future migration)
 
-Fichier : `scripts/postgresql/init.sql`  
-Nécessite le provider `Npgsql.EntityFrameworkCore.PostgreSQL` (non installé par défaut).
+- Le projet supporte la sélection du provider (`DatabaseProvider=PostgreSQL|Npgsql`) et référence `Npgsql.EntityFrameworkCore.PostgreSQL`, mais les migrations EF Core actuelles ciblent SQLite.
+- Pour migrer : configurer `ConnectionStrings:PostgreSQL`, générer un jeu de migrations PostgreSQL depuis le modèle actuel, créer/appliquer sur la base PostgreSQL, puis migrer les données si nécessaire.
+- Script de référence : `backend/scripts/postgresql/init.sql` (schéma historique de base ; ne reflète pas tout le modèle actuel). Sauvegarde préparée : `backend/scripts/backup-database-postgresql.ps1` (`pg_dump`).
 
 ---
 
@@ -805,7 +819,7 @@ dotnet run
 
 4. Le client WinForms doit pointer vers `http://<IP-serveur>:5000` pour l'API et `http://<IP-serveur>:5000/hubs/chat` pour SignalR.
 
-5. Aucun port de base de données n'est ouvert sur le réseau (SQLite est fichier local côté serveur).
+5. En mode SQLite actuel, aucun port de base de données n'est ouvert sur le réseau (fichier local côté serveur). En cas de migration future vers PostgreSQL, sécuriser l’accès réseau au SGBD (port 5432 restreint, comptes dédiés, sauvegardes).
 
 ---
 

@@ -2,9 +2,10 @@
 
 Plateforme de messagerie professionnelle pour organisation, conçue pour un déploiement **LAN/VPN**.
 
-- **Backend** : ASP.NET Core / .NET 10, EF Core, SQLite, JWT, SignalR
+- **Backend** : ASP.NET Core / .NET 10, EF Core, JWT, SignalR
 - **Client** : Windows Forms / .NET 10 (`net10.0-windows`)
-- **Base** : SQLite (fichier local côté serveur), migrations automatiques au démarrage
+- **Base (actuelle)** : SQLite (fichier local côté serveur), migrations automatiques au démarrage
+- **Préparation migration** : support prévu pour PostgreSQL (provider Npgsql, configuration par `DatabaseProvider`) ; migrations PostgreSQL à générer lors de la bascule
 - **Temps réel** : SignalR (`/hubs/chat`)
 - **Sécurité** : RBAC 5 rôles, sessions révocables, audit inaltérable, isolation multi-organisations
 
@@ -90,7 +91,7 @@ DOCUMENTATION_TECHNIQUE.md documentation backend détaillée
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
 - Windows 10/11 pour le client WinForms
-- Aucun serveur de base externe requis : SQLite est utilisé par défaut (fichier `OrgChat.db` côté serveur)
+- Aucun serveur de base externe requis en mode actuel : SQLite est utilisé par défaut (fichier `OrgChat.db` côté serveur). PostgreSQL est préparé pour une migration future (serveur PostgreSQL requis lors de la bascule).
 
 ## Démarrage rapide
 
@@ -138,12 +139,14 @@ messagerie, migrations non destructives et non-régression.
 
 ## Configuration
 
-`backend/OrgChat.Server/appsettings.json` (exemple sans secrets) :
+`backend/OrgChat.Server/appsettings.json` (exemple sans secrets, SQLite actif par défaut) :
 
 ```json
 {
+  "DatabaseProvider": "Sqlite",
   "ConnectionStrings": {
-    "DefaultConnection": ""
+    "DefaultConnection": "Data Source=OrgChat.db;Foreign Keys=True",
+    "PostgreSQL": "Host=localhost;Port=5432;Database=orgchat;Username=postgres;Password=<secret>"
   },
   "JwtSettings": {
     "Key": "",
@@ -157,20 +160,27 @@ messagerie, migrations non destructives et non-régression.
 }
 ```
 
-- **Aucun secret ne doit être commité**. Fournissez-les via des variables d'environnement ou une configuration sécurisée (ex. `ConnectionStrings__DefaultConnection`, `JwtSettings__Key`).
+- **Aucun secret ne doit être commité**. Fournissez-les via des variables d'environnement ou une configuration sécurisée (ex. `ConnectionStrings__DefaultConnection`, `ConnectionStrings__PostgreSQL`, `JwtSettings__Key`).
+- `DatabaseProvider` : `Sqlite` (actuel, par défaut) ou `PostgreSQL`/`Npgsql` (préparé pour une migration future).
 - `OrgChat:PublicBaseUrl` : URL publique du serveur (ex. `https://chat.example.org`) utilisée dans les liens d'activation. Vide = déduite de la requête HTTP.
 - `SmtpSettings:Host` vide : aucun e-mail n'est envoyé ; le lien d'activation est copiable depuis l'interface.
 
-## Base de données SQLite et migrations
+## Base de données, migrations et préparation PostgreSQL
 
+### Actuel : SQLite (actif)
 - **SGBD** : SQLite (fichier `OrgChat.db` côté serveur), utilisé via EF Core (`Microsoft.EntityFrameworkCore.Sqlite`). Aucun mot de passe de base de données n’est requis.
-- **Migrations** : une migration initiale SQLite est fournie (`Migrations/*InitialSqlite*`). Au démarrage, le serveur applique automatiquement les migrations (`MigrateAsync()`), avec sauvegarde préalable de la base dans `backups/` quand le fichier existe.
+- **Migrations** : migration initiale SQLite fournie (`Migrations/*InitialSqlite*`). Au démarrage, le serveur applique automatiquement les migrations (`MigrateAsync()`), avec sauvegarde préalable de la base dans `backups/` quand le fichier existe (`backend/scripts/backup-database.ps1`).
 - **Sécurité/secret JWT** : `JwtSettings:Key` doit être défini en production (variable d’environnement `JwtSettings__Key` ou configuration sécurisée). En `Development`, une clé de secours locale est utilisée si la clé n’est pas fournie, pour faciliter l’exécution.
-- **Échange multi-utilisateurs (LAN/VPN)** : les clients ne se connectent pas directement à la base ; ils passent tous par le serveur (API + SignalR) qui lit/écrit dans SQLite et diffuse les messages en temps réel. Pour un usage multi-utilisateurs sur le même sous-réseau/VPN :
+- **Échange multi-utilisateurs (LAN/VPN)** : les clients ne se connectent pas directement à la base ; ils passent tous par le serveur (API + SignalR) qui lit/écrit dans la base et diffuse les messages en temps réel. Pour un usage multi-utilisateurs sur le même sous-réseau/VPN :
   - lancer le serveur sur une machine accessible (`http://0.0.0.0:5000` par défaut en dev), ouvrir le port 5000 si nécessaire ;
   - configurer chaque client avec `http://<IP-ou-hôte-serveur>:5000` ;
   - créer/activer les comptes utilisateurs (SuperAdmin garanti : `superAdmin` / `superadmin123!`).
-  - la base SQLite doit rester locale au serveur (ne pas la partager comme fichier réseau). Pour de fortes charges/concurrences ou un déploiement distribué, un SGBD client/serveur (ex. MySQL/PostgreSQL) reste préférable.
+  - la base SQLite doit rester locale au serveur (ne pas la partager comme fichier réseau).
+
+### Préparation : PostgreSQL (future migration)
+- Le projet est **préparé** pour PostgreSQL : le package `Npgsql.EntityFrameworkCore.PostgreSQL` est référencé et le serveur peut sélectionner le provider via `DatabaseProvider` (`Sqlite` par défaut, `PostgreSQL`/`Npgsql` prévu) avec la chaîne `ConnectionStrings:PostgreSQL`.
+- **Migrations** : les migrations EF Core sont spécifiques au provider ; les migrations actuelles ciblent SQLite. Lors d’une migration réelle vers PostgreSQL, il faudra générer/appliquer un jeu de migrations PostgreSQL (ex. `dotnet ef migrations add InitialPostgres -p backend/OrgChat.Infrastructure -s backend/OrgChat.Server`) sur une base PostgreSQL, puis migrer les données depuis `OrgChat.db` si nécessaire (ETL/outils comme `pgloader`).
+- **Sauvegarde PostgreSQL** : script préparé `backend/scripts/backup-database-postgresql.ps1` (via `pg_dump`). Pour de fortes charges/concurrences ou un déploiement distribué, PostgreSQL est recommandé.
 
 ## Documentation
 

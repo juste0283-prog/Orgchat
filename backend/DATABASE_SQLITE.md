@@ -1,7 +1,8 @@
-# Base de données SQLite
+# Base de données SQLite (actuelle)
 
-Le backend OrgChat utilise EF Core Code-First et SQLite. Le fichier de base de
-données reste sur le serveur; les clients ne l'ouvrent pas directement.
+Le backend OrgChat utilise EF Core Code-First avec **SQLite** comme base active par défaut. Le fichier de base de données reste sur le serveur ; les clients ne l'ouvrent pas directement.
+
+> **Préparation PostgreSQL** : le projet est préparé pour une migration future vers PostgreSQL (`DatabaseProvider=PostgreSQL`, package `Npgsql.EntityFrameworkCore.PostgreSQL`, chaîne `ConnectionStrings:PostgreSQL`, script `backend/scripts/backup-database-postgresql.ps1`). Les migrations EF Core actuelles ciblent SQLite ; une bascule réelle nécessite de générer/appliquer des migrations PostgreSQL et, si besoin, de migrer les données.
 
 ## MCD
 
